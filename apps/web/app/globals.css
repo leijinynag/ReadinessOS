@@ -1,0 +1,268 @@
+@import 'tailwindcss';
+
+:root {
+  --canvas: #f7f9fb;
+  --surface: #ffffff;
+  --ink: #102a43;
+  --muted: #627d98;
+  --line: #d9e2ec;
+  --navy: #243b53;
+  --teal: #0f766e;
+  --amber: #b45309;
+  --red: #b42318;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--canvas);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  min-height: 64px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.topbar-content,
+.page-content {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.topbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--navy);
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.brand-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 6px;
+  color: white;
+  background: var(--teal);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.page-content {
+  padding: 48px 0 80px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 10px;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.15;
+}
+
+.page-lede {
+  max-width: 720px;
+  margin-bottom: 32px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.scenario-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.scenario-card {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.scenario-card h2 {
+  margin-bottom: 10px;
+  font-size: 21px;
+}
+
+.scenario-card p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #075951;
+  background: #ccfbf1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 14px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.button-primary {
+  color: white;
+  background: var(--teal);
+}
+
+.button-secondary {
+  border-color: var(--line);
+  color: var(--navy);
+  background: var(--surface);
+}
+
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(100%, 420px);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.login-panel h1 {
+  font-size: 28px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.field label {
+  color: var(--navy);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 12px;
+  color: var(--ink);
+}
+
+.form-error {
+  margin: 0 0 16px;
+  color: var(--red);
+  font-size: 14px;
+}
+
+.empty-state {
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+@media (max-width: 680px) {
+  .topbar-content,
+  .page-content {
+    width: min(100% - 24px, 1180px);
+  }
+
+  .page-content {
+    padding-top: 32px;
+  }
+
+  .scenario-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .user-label {
+    display: none;
+  }
+}

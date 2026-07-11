@@ -1,0 +1,33 @@
+{
+  "name": "@readinessos/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "dotenv -e ../../.env.local -- next build",
+    "dev": "dotenv -e ../../.env.local -- next dev",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@readinessos/application": "workspace:*",
+    "@readinessos/database": "workspace:*",
+    "@readinessos/domain-events": "workspace:*",
+    "@tanstack/react-virtual": "3.14.5",
+    "@vercel/otel": "2.1.3",
+    "lucide-react": "1.24.0",
+    "next": "16.2.10",
+    "next-auth": "5.0.0-beta.30",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tailwindcss": "4.3.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "jsdom": "28.1.0"
+  }
+}

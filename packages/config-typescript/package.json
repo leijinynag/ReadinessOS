@@ -1,0 +1,11 @@
+{
+  "name": "@readinessos/config-typescript",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "base.json"
+  ],
+  "exports": {
+    "./base.json": "./base.json"
+  }
+}

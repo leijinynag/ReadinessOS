@@ -2,8 +2,8 @@
 
 # ReadinessOS MVP 实施任务清单
 
-> 状态：未开始  
-> 更新日期：2026-07-11  
+> 状态：W1 已完成，W2 未开始
+> 更新日期：2026-07-11
 > 依据：[plan.md](./plan.md)
 
 ## 使用规则
@@ -51,53 +51,53 @@
 
 ### Monorepo
 
-- [ ] `W1-01` 初始化 pnpm Workspace 和根 `package.json`。
-- [ ] `W1-02` 初始化 Turborepo，定义 `dev`、`build`、`lint`、`typecheck`、`test` 和 `format` Pipeline。
-- [ ] `W1-03` 创建 `apps/web` Next.js 16 App Router 应用。
-- [ ] `W1-04` 创建计划中的 `packages/*` 和 `scenario-packs/*` 目录边界。
-- [ ] `W1-05` 配置共享 TypeScript strict 基线和包级 `tsconfig`。
-- [ ] `W1-06` 配置 ESLint、Prettier 和 EditorConfig。
-- [ ] `W1-07` 创建环境变量 Schema、`.env.example` 和启动时校验。
-- [ ] `W1-08` 添加根 README，记录安装、环境配置和本地启动命令。
+- [x] `W1-01` 初始化 pnpm Workspace 和根 `package.json`。
+- [x] `W1-02` 初始化 Turborepo，定义 `dev`、`build`、`lint`、`typecheck`、`test` 和 `format` Pipeline。
+- [x] `W1-03` 创建 `apps/web` Next.js 16 App Router 应用。
+- [x] `W1-04` 创建计划中的 `packages/*` 和 `scenario-packs/*` 目录边界。
+- [x] `W1-05` 配置共享 TypeScript strict 基线和包级 `tsconfig`。
+- [x] `W1-06` 配置 ESLint、Prettier 和 EditorConfig。
+- [x] `W1-07` 创建环境变量 Schema、`.env.example` 和启动时校验。
+- [x] `W1-08` 添加根 README，记录安装、环境配置和本地启动命令。
 
 ### Prisma 与 PostgreSQL
 
-- [ ] `W1-09` 创建 `packages/database`，安装并初始化 Prisma ORM。
-- [ ] `W1-10` 创建 `schema.prisma`、Prisma Client 单例和数据库 package 出口。
-- [ ] `W1-11` 建立 Organization、User、Member 数据模型和租户索引。
-- [ ] `W1-12` 建立 Scenario、ScenarioVersion 基础数据模型。
-- [ ] `W1-13` 建立 SimulationRun、RunParticipant 基础数据模型。
-- [ ] `W1-14` 建立首个 Prisma Migration，并人工审查生成 SQL。
-- [ ] `W1-15` 添加 Prisma format、validate、generate 和 migrate 脚本。
-- [ ] `W1-16` 添加全新数据库从零应用 Migration 的集成测试。
-- [ ] `W1-17` 配置开发和 Vercel 环境的连接池策略，避免重复创建 Prisma Client。
-- [ ] `W1-18` 创建 Seed 脚本，写入演示组织、用户和两个场景占位。
+- [x] `W1-09` 创建 `packages/database`，安装并初始化 Prisma ORM。
+- [x] `W1-10` 创建 `schema.prisma`、Prisma Client 单例和数据库 package 出口。
+- [x] `W1-11` 建立 Organization、User、Member 数据模型和租户索引。
+- [x] `W1-12` 建立 Scenario、ScenarioVersion 基础数据模型。
+- [x] `W1-13` 建立 SimulationRun、RunParticipant 基础数据模型。
+- [x] `W1-14` 建立首个 Prisma Migration，并人工审查生成 SQL。
+- [x] `W1-15` 添加 Prisma format、validate、generate 和 migrate 脚本。
+- [x] `W1-16` 添加全新数据库从零应用 Migration 的集成测试。
+- [x] `W1-17` 配置开发和 Vercel 环境的连接池策略，避免重复创建 Prisma Client。
+- [x] `W1-18` 创建 Seed 脚本，写入演示组织、用户和两个场景占位。
 
 ### 身份与协议
 
-- [ ] `W1-19` 定义 `AuthSession`、`AuthorizationService` 和 Organization 权限边界。
-- [ ] `W1-20` 接入 Auth.js，并通过 Auth Port 隔离框架类型。
-- [ ] `W1-21` 实现登录、退出和受保护应用布局。
-- [ ] `W1-22` 定义 DomainEvent Envelope 及 Zod Schema。
-- [ ] `W1-23` 定义 CommandEnvelope、ActorRef 和标准错误码。
-- [ ] `W1-24` 创建 Event Catalog 文档并登记初始事件。
-- [ ] `W1-25` 为事件 Schema、租户隔离和数据库唯一约束添加测试。
+- [x] `W1-19` 定义 `AuthSession`、`AuthorizationService` 和 Organization 权限边界。
+- [x] `W1-20` 接入 Auth.js，并通过 Auth Port 隔离框架类型。
+- [x] `W1-21` 实现登录、退出和受保护应用布局。
+- [x] `W1-22` 定义 DomainEvent Envelope 及 Zod Schema。
+- [x] `W1-23` 定义 CommandEnvelope、ActorRef 和标准错误码。
+- [x] `W1-24` 创建 Event Catalog 文档并登记初始事件。
+- [x] `W1-25` 为事件 Schema、租户隔离和数据库唯一约束添加测试。
 
 ### CI 与可观测性
 
-- [ ] `W1-26` 创建 GitHub Actions CI，执行 install、format、lint、typecheck 和 unit test。
-- [ ] `W1-27` 在 CI 中加入 Prisma format、validate 和全新数据库迁移检查。
-- [ ] `W1-28` 接入基础 OpenTelemetry request/command trace。
-- [ ] `W1-29` 创建场景列表占位页，验证登录后的最小纵向路径。
+- [x] `W1-26` 创建 GitHub Actions CI，执行 install、format、lint、typecheck 和 unit test。
+- [x] `W1-27` 在 CI 中加入 Prisma format、validate 和全新数据库迁移检查。
+- [x] `W1-28` 接入基础 OpenTelemetry request/command trace。
+- [x] `W1-29` 创建场景列表占位页，验证登录后的最小纵向路径。
 
 ### W1 验收
 
-- [ ] `W1-A1` 一条命令可以启动 Web 和必要本地依赖。
-- [ ] `W1-A2` 用户可以登录并看到场景列表占位。
-- [ ] `W1-A3` Prisma Migration 可在空数据库完整应用。
-- [ ] `W1-A4` 事件 Schema 和数据库约束测试通过。
-- [ ] `W1-A5` format、lint、typecheck、test 和 build 全部通过。
-- [ ] `W1-C1` Commit Checkpoint：提交工程骨架，建议 `feat(platform): establish monorepo and prisma foundation`。
+- [x] `W1-A1` 一条命令可以启动 Web 和必要本地依赖。
+- [x] `W1-A2` 用户可以登录并看到场景列表占位。
+- [x] `W1-A3` Prisma Migration 可在空数据库完整应用。
+- [x] `W1-A4` 事件 Schema 和数据库约束测试通过。
+- [x] `W1-A5` format、lint、typecheck、test 和 build 全部通过。
+- [x] `W1-C1` Commit Checkpoint：提交工程骨架，建议 `feat(platform): establish monorepo and prisma foundation`。
 - [ ] `W1-P1` Push Checkpoint：推送 W1 分支并创建或更新 PR。
 
 ---

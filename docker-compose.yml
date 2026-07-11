@@ -7,11 +7,11 @@ services:
       POSTGRES_USER: readinessos
       POSTGRES_PASSWORD: readinessos
     ports:
-      - "5433:5432"
+      - '5433:5432'
     volumes:
       - readinessos-postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U readinessos -d readinessos"]
+      test: ['CMD-SHELL', 'pg_isready -U readinessos -d readinessos']
       interval: 5s
       timeout: 5s
       retries: 20

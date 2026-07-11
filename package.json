@@ -1,0 +1,47 @@
+{
+  "name": "readinessos",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "pnpm": ">=11.7.0 <12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "dev:local": "corepack pnpm db:generate && corepack pnpm db:up && corepack pnpm db:deploy && corepack pnpm db:seed && corepack pnpm dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:watch": "turbo run test:watch",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose down",
+    "db:format": "dotenv -e .env.local -- corepack pnpm --dir packages/database exec prisma format --schema prisma/schema.prisma",
+    "db:generate": "dotenv -e .env.local -- corepack pnpm --dir packages/database exec prisma generate --schema prisma/schema.prisma",
+    "db:validate": "dotenv -e .env.local -- corepack pnpm --dir packages/database exec prisma validate --schema prisma/schema.prisma",
+    "db:migrate": "dotenv -e .env.local -- corepack pnpm --dir packages/database exec prisma migrate dev --schema prisma/schema.prisma",
+    "db:deploy": "dotenv -e .env.local -- corepack pnpm --dir packages/database exec prisma migrate deploy --schema prisma/schema.prisma",
+    "db:seed": "dotenv -e .env.local -- tsx packages/database/prisma/seed.ts",
+    "db:reset": "dotenv -e .env.local -- corepack pnpm --dir packages/database exec prisma migrate reset --schema prisma/schema.prisma --force",
+    "db:test:migrations": "node --env-file-if-exists=.env.local --import tsx packages/database/test/verify-fresh-migration.ts",
+    "markdown:lint": "markdownlint-cli2 \"**/*.md\" \"#**/node_modules/**\" \"#**/.next/**\"",
+    "verify": "corepack pnpm format:check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test && corepack pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "dotenv-cli": "8.0.0",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.10",
+    "markdownlint-cli2": "0.23.0",
+    "prettier": "3.9.5",
+    "tsx": "4.23.0",
+    "turbo": "2.10.4",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

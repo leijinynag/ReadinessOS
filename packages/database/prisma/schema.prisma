@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum MemberRole {
+  owner
+  admin
+  member
+  viewer
+}
+
+enum ScenarioStatus {
+  draft
+  published
+  archived
+}
+
+enum RunStatus {
+  created
+  running
+  paused
+  completed
+  failed
+}
+
+enum ParticipantController {
+  human
+  agent
+  system
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members   Member[]
+  scenarios Scenario[]
+  runs      SimulationRun[]
+
+  @@map("organizations")
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Member[]
+  createdRuns SimulationRun[] @relation("RunCreator")
+
+  @@map("users")
+}
+
+model Member {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  userId         String     @map("user_id") @db.Uuid
+  role           MemberRole @default(member)
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId, organizationId])
+  @@map("members")
+}
+
+model Scenario {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  key            String
+  name           String
+  description    String
+  status         ScenarioStatus @default(draft)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  versions     ScenarioVersion[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, status])
+  @@map("scenarios")
+}
+
+model ScenarioVersion {
+  id          String    @id @default(uuid()) @db.Uuid
+  scenarioId  String    @map("scenario_id") @db.Uuid
+  version     Int
+  config      Json
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  scenario Scenario        @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  runs     SimulationRun[]
+
+  @@unique([scenarioId, version])
+  @@map("scenario_versions")
+}
+
+model SimulationRun {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  scenarioVersionId  String    @map("scenario_version_id") @db.Uuid
+  parentRunId        String?   @map("parent_run_id") @db.Uuid
+  branchFromSequence Int?      @map("branch_from_sequence")
+  status             RunStatus @default(created)
+  version            Int       @default(0)
+  seed               Int
+  virtualTime        Int       @default(0) @map("virtual_time")
+  latestSequence     Int       @default(0) @map("latest_sequence")
+  startedAt          DateTime? @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  createdById        String    @map("created_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scenarioVersion ScenarioVersion  @relation(fields: [scenarioVersionId], references: [id], onDelete: Restrict)
+  parentRun       SimulationRun?   @relation("RunBranches", fields: [parentRunId], references: [id], onDelete: Restrict)
+  branches        SimulationRun[]  @relation("RunBranches")
+  createdBy       User             @relation("RunCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  participants    RunParticipant[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([parentRunId, branchFromSequence])
+  @@map("simulation_runs")
+}
+
+model RunParticipant {
+  id              String                @id @default(uuid()) @db.Uuid
+  runId           String                @map("run_id") @db.Uuid
+  key             String
+  displayName     String                @map("display_name")
+  controller      ParticipantController
+  capabilities    Json                  @default("[]")
+  permissions     Json                  @default("[]")
+  objectives      Json                  @default("[]")
+  knowledgeScopes Json                  @default("[]") @map("knowledge_scopes")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, key])
+  @@index([runId, controller])
+  @@map("run_participants")
+}
