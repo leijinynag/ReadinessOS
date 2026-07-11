@@ -98,7 +98,7 @@
 - [x] `W1-A4` 事件 Schema 和数据库约束测试通过。
 - [x] `W1-A5` format、lint、typecheck、test 和 build 全部通过。
 - [x] `W1-C1` Commit Checkpoint：提交工程骨架，建议 `feat(platform): establish monorepo and prisma foundation`。
-- [ ] `W1-P1` Push Checkpoint：推送 W1 分支并创建或更新 PR。
+- [x] `W1-P1` Push Checkpoint：推送 W1 分支并创建或更新 PR。
 
 ---
 
