@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: readinessos-postgres
+    environment:
+      POSTGRES_DB: readinessos
+      POSTGRES_USER: readinessos
+      POSTGRES_PASSWORD: readinessos
+    ports:
+      - "5433:5432"
+    volumes:
+      - readinessos-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U readinessos -d readinessos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  readinessos-postgres-data:

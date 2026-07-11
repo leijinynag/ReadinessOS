@@ -1,0 +1,29 @@
+# Dependencies and package-manager output
+node_modules/
+.pnpm-store/
+
+# Build and test output
+.next/
+.turbo/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# Local environment and database files
+.env
+.env.local
+.env.*.local
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and OS/editor files
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Prisma generated local artifacts
+packages/database/prisma/dev.db
