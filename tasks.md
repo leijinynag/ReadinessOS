@@ -143,7 +143,7 @@
 - [x] `W2-A4` Scenario Pack Contract Test 通过。
 - [x] `W2-C1` Commit Checkpoint：提交确定性内核，建议 `feat(kernel): implement deterministic simulation engine`。
 - [x] `W2-C2` Commit Checkpoint：提交 Scenario SDK 和最小场景，建议 `feat(scenarios): add scenario SDK and incident pack skeleton`。
-- [ ] `W2-P1` Push Checkpoint：推送 W2 分支并更新 PR。
+- [x] `W2-P1` Push Checkpoint：推送 W2 分支并更新 PR。
 
 ---
 
