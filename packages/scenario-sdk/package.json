@@ -1,5 +1,5 @@
 {
-  "name": "@readinessos/scenario-pack-saas-incident",
+  "name": "@readinessos/scenario-sdk",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@readinessos/scenario-sdk": "workspace:*",
     "@readinessos/simulation-kernel": "workspace:*",
     "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@readinessos/config-typescript": "workspace:*"
   }
 }

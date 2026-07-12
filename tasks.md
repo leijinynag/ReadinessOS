@@ -106,43 +106,43 @@
 
 ### 纯函数内核
 
-- [ ] `W2-01` 定义 `SimulationKernel`、`KernelContext`、`KernelResult` 和副作用意图。
-- [ ] `W2-02` 实现 Create、Start、Pause、Resume、AdvanceClock 生命周期 Command。
-- [ ] `W2-03` 实现 SubmitAction、ResolveApproval、TriggerInject 和 FinishRun Command。
-- [ ] `W2-04` 实现严格递增 sequence 和稳定 idempotencyKey 规则。
-- [ ] `W2-05` 实现确定性随机数接口，禁止 Kernel 直接调用系统随机数。
-- [ ] `W2-06` 实现 Trigger 组合器 `all/any/not` 和时间、状态、事件条件。
-- [ ] `W2-07` 实现有限 Effect DSL，并在 Pack 加载时校验所有 State path。
-- [ ] `W2-08` 实现 Participant、Capability、Permission 和 Knowledge Scope 校验。
-- [ ] `W2-09` 实现 Action 前置条件和审批策略。
-- [ ] `W2-10` 实现终止条件、Checkpoint 和基础确定性 Evaluation。
-- [ ] `W2-11` 实现 Event replay 和 Snapshot 恢复。
-- [ ] `W2-12` 防止零延迟 Trigger 产生无限循环。
+- [x] `W2-01` 定义 `SimulationKernel`、`KernelContext`、`KernelResult` 和副作用意图。
+- [x] `W2-02` 实现 Create、Start、Pause、Resume、AdvanceClock 生命周期 Command。
+- [x] `W2-03` 实现 SubmitAction、ResolveApproval、TriggerInject 和 FinishRun Command。
+- [x] `W2-04` 实现严格递增 sequence 和稳定 idempotencyKey 规则。
+- [x] `W2-05` 实现确定性随机数接口，禁止 Kernel 直接调用系统随机数。
+- [x] `W2-06` 实现 Trigger 组合器 `all/any/not` 和时间、状态、事件条件。
+- [x] `W2-07` 实现有限 Effect DSL，并在 Pack 加载时校验所有 State path。
+- [x] `W2-08` 实现 Participant、Capability、Permission 和 Knowledge Scope 校验。
+- [x] `W2-09` 实现 Action 前置条件和审批策略。
+- [x] `W2-10` 实现终止条件、Checkpoint 和基础确定性 Evaluation。
+- [x] `W2-11` 实现 Event replay 和 Snapshot 恢复。
+- [x] `W2-12` 防止零延迟 Trigger 产生无限循环。
 
 ### Scenario SDK
 
-- [ ] `W2-13` 定义 ScenarioPack、Manifest、Action、Signal、Inject、Evaluator 和 UIContribution 接口。
-- [ ] `W2-14` 创建 Scenario Pack Contract Test Harness。
-- [ ] `W2-15` 创建 SaaS Incident WorldState Zod Schema。
-- [ ] `W2-16` 实现最小参与方、动作、Signal、Inject 和结束条件。
-- [ ] `W2-17` 添加固定种子的 CLI 或测试运行入口。
+- [x] `W2-13` 定义 ScenarioPack、Manifest、Action、Signal、Inject、Evaluator 和 UIContribution 接口。
+- [x] `W2-14` 创建 Scenario Pack Contract Test Harness。
+- [x] `W2-15` 创建 SaaS Incident WorldState Zod Schema。
+- [x] `W2-16` 实现最小参与方、动作、Signal、Inject 和结束条件。
+- [x] `W2-17` 添加固定种子的 CLI 或测试运行入口。
 
 ### 测试
 
-- [ ] `W2-18` 添加 Kernel 生命周期单元测试。
-- [ ] `W2-19` 添加权限、知识边界和审批不变量测试。
-- [ ] `W2-20` 使用 fast-check 验证相同输入重放结果一致。
-- [ ] `W2-21` 验证未批准动作绝不产生 `action.executed`。
-- [ ] `W2-22` 验证 Scenario Pack 不依赖 Prisma、Next.js、React 或 Eve。
+- [x] `W2-18` 添加 Kernel 生命周期单元测试。
+- [x] `W2-19` 添加权限、知识边界和审批不变量测试。
+- [x] `W2-20` 使用 fast-check 验证相同输入重放结果一致。
+- [x] `W2-21` 验证未批准动作绝不产生 `action.executed`。
+- [x] `W2-22` 验证 Scenario Pack 不依赖 Prisma、Next.js、React 或 Eve。
 
 ### W2 验收
 
-- [ ] `W2-A1` 无 LLM、无数据库即可运行完整最小场景。
-- [ ] `W2-A2` Snapshot replay 与完整 replay 结果一致。
-- [ ] `W2-A3` Kernel 全部不变量测试通过。
-- [ ] `W2-A4` Scenario Pack Contract Test 通过。
-- [ ] `W2-C1` Commit Checkpoint：提交确定性内核，建议 `feat(kernel): implement deterministic simulation engine`。
-- [ ] `W2-C2` Commit Checkpoint：提交 Scenario SDK 和最小场景，建议 `feat(scenarios): add scenario SDK and incident pack skeleton`。
+- [x] `W2-A1` 无 LLM、无数据库即可运行完整最小场景。
+- [x] `W2-A2` Snapshot replay 与完整 replay 结果一致。
+- [x] `W2-A3` Kernel 全部不变量测试通过。
+- [x] `W2-A4` Scenario Pack Contract Test 通过。
+- [x] `W2-C1` Commit Checkpoint：提交确定性内核，建议 `feat(kernel): implement deterministic simulation engine`。
+- [x] `W2-C2` Commit Checkpoint：提交 Scenario SDK 和最小场景，建议 `feat(scenarios): add scenario SDK and incident pack skeleton`。
 - [ ] `W2-P1` Push Checkpoint：推送 W2 分支并更新 PR。
 
 ---
