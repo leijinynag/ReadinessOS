@@ -133,6 +133,19 @@ importers:
         specifier: 4.9.0
         version: 4.9.0
 
+  packages/scenario-sdk:
+    dependencies:
+      '@readinessos/simulation-kernel':
+        specifier: workspace:*
+        version: link:../simulation-kernel
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@readinessos/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+
   packages/simulation-kernel:
     dependencies:
       '@readinessos/domain-events':
@@ -141,6 +154,10 @@ importers:
       zod:
         specifier: 4.4.3
         version: 4.4.3
+    devDependencies:
+      fast-check:
+        specifier: 4.9.0
+        version: 4.9.0
 
   scenario-packs/customer-escalation:
     dependencies:
@@ -150,9 +167,15 @@ importers:
 
   scenario-packs/saas-incident:
     dependencies:
+      '@readinessos/scenario-sdk':
+        specifier: workspace:*
+        version: link:../../packages/scenario-sdk
       '@readinessos/simulation-kernel':
         specifier: workspace:*
         version: link:../../packages/simulation-kernel
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
 packages:
   '@acemir/cssom@0.9.31':

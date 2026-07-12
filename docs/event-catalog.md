@@ -37,7 +37,9 @@
 | `action.denied`              | 1    | 动作被拒绝。                             |
 | `action.executed`            | 1    | Kernel 已执行动作。                      |
 | `state.changed`              | 1    | WorldState 的受控变更。                  |
+| `inject.scheduled`           | 1    | 注册在未来虚拟时间触发的预定义 Inject。  |
 | `inject.triggered`           | 1    | Director 或调度触发预定义 Inject。       |
+| `metric.recorded`            | 1    | 记录场景内用于评估的确定性指标。         |
 | `participant.joined`         | 1    | 参与方加入运行。                         |
 | `participant.status_changed` | 1    | 参与方状态改变。                         |
 | `decision.recorded`          | 1    | 记录可复盘的关键决策。                   |
