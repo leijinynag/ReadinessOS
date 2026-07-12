@@ -13,6 +13,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@readinessos/domain-events": "workspace:*"
+    "@prisma/client": "6.19.0",
+    "@readinessos/database": "workspace:*",
+    "@readinessos/domain-events": "workspace:*",
+    "@readinessos/scenario-sdk": "workspace:*",
+    "@readinessos/simulation-kernel": "workspace:*",
+    "zod": "4.4.3"
   }
 }

@@ -35,6 +35,21 @@ enum ParticipantController {
   system
 }
 
+enum EventSource {
+  human
+  agent
+  system
+  integration
+}
+
+enum AgentSessionStatus {
+  active
+  waiting_for_input
+  completed
+  failed
+  terminated
+}
+
 model Organization {
   id        String   @id @default(uuid()) @db.Uuid
   slug      String   @unique
@@ -42,9 +57,12 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  members   Member[]
-  scenarios Scenario[]
-  runs      SimulationRun[]
+  members        Member[]
+  scenarios      Scenario[]
+  runs           SimulationRun[]
+  runEvents      RunEvent[]
+  outboxMessages OutboxMessage[]
+  usageLedger    UsageLedger[]
 
   @@map("organizations")
 }
@@ -112,29 +130,42 @@ model ScenarioVersion {
 }
 
 model SimulationRun {
-  id                 String    @id @default(uuid()) @db.Uuid
-  organizationId     String    @map("organization_id") @db.Uuid
-  scenarioVersionId  String    @map("scenario_version_id") @db.Uuid
-  parentRunId        String?   @map("parent_run_id") @db.Uuid
-  branchFromSequence Int?      @map("branch_from_sequence")
-  status             RunStatus @default(created)
-  version            Int       @default(0)
-  seed               Int
-  virtualTime        Int       @default(0) @map("virtual_time")
-  latestSequence     Int       @default(0) @map("latest_sequence")
-  startedAt          DateTime? @map("started_at")
-  completedAt        DateTime? @map("completed_at")
-  createdById        String    @map("created_by") @db.Uuid
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  scenarioVersionId    String    @map("scenario_version_id") @db.Uuid
+  parentRunId          String?   @map("parent_run_id") @db.Uuid
+  branchFromSequence   Int?      @map("branch_from_sequence")
+  status               RunStatus @default(created)
+  version              Int       @default(0)
+  seed                 Int
+  virtualTime          Int       @default(0) @map("virtual_time")
+  latestSequence       Int       @default(0) @map("latest_sequence")
+  startedAt            DateTime? @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  createdById          String    @map("created_by") @db.Uuid
+  createIdempotencyKey String?   @map("create_idempotency_key")
+  schedulerGeneration  Int       @default(0) @map("scheduler_generation")
+  nextTickIndex        Int       @default(0) @map("next_tick_index")
+  tickIntervalSeconds  Int       @default(15) @map("tick_interval_seconds")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scenarioVersion ScenarioVersion  @relation(fields: [scenarioVersionId], references: [id], onDelete: Restrict)
-  parentRun       SimulationRun?   @relation("RunBranches", fields: [parentRunId], references: [id], onDelete: Restrict)
-  branches        SimulationRun[]  @relation("RunBranches")
-  createdBy       User             @relation("RunCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scenarioVersion ScenarioVersion        @relation(fields: [scenarioVersionId], references: [id], onDelete: Restrict)
+  parentRun       SimulationRun?         @relation("RunBranches", fields: [parentRunId], references: [id], onDelete: Restrict)
+  branches        SimulationRun[]        @relation("RunBranches")
+  createdBy       User                   @relation("RunCreator", fields: [createdById], references: [id], onDelete: Restrict)
   participants    RunParticipant[]
+  events          RunEvent[]
+  snapshots       StateSnapshot[]
+  checkpoints     Checkpoint[]
+  overview        RunOverviewProjection?
+  timeline        TimelineProjection[]
+  outboxMessages  OutboxMessage[]
+  agentTraces     AgentTrace[]
+  usageLedger     UsageLedger[]
 
+  @@unique([organizationId, createdById, createIdempotencyKey])
   @@index([organizationId, status, createdAt])
   @@index([parentRunId, branchFromSequence])
   @@map("simulation_runs")
@@ -153,9 +184,195 @@ model RunParticipant {
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
 
-  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run               SimulationRun          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  projection        ParticipantProjection?
+  agentSessionLinks AgentSessionLink[]
+  agentTraces       AgentTrace[]
+  usageLedger       UsageLedger[]
 
   @@unique([runId, key])
   @@index([runId, controller])
   @@map("run_participants")
+}
+
+model RunEvent {
+  id             String      @id @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  runId          String      @map("run_id") @db.Uuid
+  sequence       Int
+  type           String
+  version        Int
+  source         EventSource
+  participantId  String?     @map("participant_id") @db.Uuid
+  simulatedAt    DateTime    @map("simulated_at")
+  recordedAt     DateTime    @map("recorded_at")
+  causationId    String?     @map("causation_id") @db.Uuid
+  correlationId  String?     @map("correlation_id") @db.Uuid
+  idempotencyKey String      @map("idempotency_key")
+  payload        Json
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run          SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@unique([runId, idempotencyKey])
+  @@index([organizationId, recordedAt(sort: Desc)])
+  @@index([runId, type, sequence])
+  @@index([runId, participantId, sequence])
+  @@map("run_events")
+}
+
+model StateSnapshot {
+  id            String   @id @default(uuid()) @db.Uuid
+  runId         String   @map("run_id") @db.Uuid
+  sequence      Int
+  schemaVersion Int      @default(1) @map("schema_version")
+  state         Json
+  checksum      String
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([runId, sequence(sort: Desc)])
+  @@map("state_snapshots")
+}
+
+model Checkpoint {
+  id        String   @id @default(uuid()) @db.Uuid
+  runId     String   @map("run_id") @db.Uuid
+  sequence  Int
+  label     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
+  @@map("checkpoints")
+}
+
+model AgentSessionLink {
+  id                String             @id @default(uuid()) @db.Uuid
+  runParticipantId  String             @map("run_participant_id") @db.Uuid
+  provider          String
+  agentKey          String             @map("agent_key")
+  sessionId         String?            @map("session_id")
+  continuationToken String?            @map("continuation_token")
+  streamIndex       Int                @default(0) @map("stream_index")
+  status            AgentSessionStatus @default(active)
+  metadata          Json               @default("{}")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  participant RunParticipant @relation(fields: [runParticipantId], references: [id], onDelete: Cascade)
+
+  @@unique([runParticipantId, provider, agentKey])
+  @@index([sessionId])
+  @@map("agent_session_links")
+}
+
+model AgentTrace {
+  id               String   @id @default(uuid()) @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  runParticipantId String?  @map("run_participant_id") @db.Uuid
+  sessionId        String?  @map("session_id")
+  streamIndex      Int?     @map("stream_index")
+  eventType        String   @map("event_type")
+  payload          Json
+  recordedAt       DateTime @default(now()) @map("recorded_at")
+
+  run         SimulationRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  participant RunParticipant? @relation(fields: [runParticipantId], references: [id], onDelete: SetNull)
+
+  @@index([runId, recordedAt])
+  @@index([sessionId, streamIndex])
+  @@map("agent_traces")
+}
+
+model RunOverviewProjection {
+  runId          String    @id @map("run_id") @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  status         RunStatus
+  latestSequence Int       @map("latest_sequence")
+  virtualTime    Int       @map("virtual_time")
+  data           Json
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, updatedAt(sort: Desc)])
+  @@map("run_overview_projection")
+}
+
+model ParticipantProjection {
+  runParticipantId String   @id @map("run_participant_id") @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  status           String
+  data             Json
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  participant RunParticipant @relation(fields: [runParticipantId], references: [id], onDelete: Cascade)
+
+  @@index([runId, status])
+  @@map("participant_projection")
+}
+
+model TimelineProjection {
+  id        String      @id @default(uuid()) @db.Uuid
+  runId     String      @map("run_id") @db.Uuid
+  sequence  Int
+  eventId   String      @map("event_id") @db.Uuid
+  type      String
+  source    EventSource
+  data      Json
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@unique([eventId])
+  @@index([runId, createdAt])
+  @@map("timeline_projection")
+}
+
+model OutboxMessage {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  runId          String?   @map("run_id") @db.Uuid
+  topic          String
+  payload        Json
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  lockedAt       DateTime? @map("locked_at")
+  publishedAt    DateTime? @map("published_at")
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run          SimulationRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([publishedAt, nextAttemptAt])
+  @@index([runId, createdAt])
+  @@map("outbox_messages")
+}
+
+model UsageLedger {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  runId            String?  @map("run_id") @db.Uuid
+  runParticipantId String?  @map("run_participant_id") @db.Uuid
+  category         String
+  quantity         Int
+  unit             String
+  metadata         Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run          SimulationRun?  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  participant  RunParticipant? @relation(fields: [runParticipantId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, category, createdAt])
+  @@index([runId, createdAt])
+  @@map("usage_ledger")
 }

@@ -23,3 +23,30 @@ export interface AuthorizationService {
 }
 
 export { OrganizationAuthorizationService } from './authorization';
+export {
+  ManualRunScheduler,
+  observationSchema,
+  proposedActionSchema,
+  type AgentHandle,
+  type AgentRuntime,
+  type Observation,
+  type ProposedAction,
+  type RunScheduler,
+} from './agent-runtime';
+export {
+  InMemoryScenarioPackRegistry,
+  PrismaRunRepository,
+  RunApplicationService,
+  RunEventHub,
+  RuntimeOutboxPublisher,
+  streamEnvelopeSchema,
+  type ClaimedOutboxMessage,
+  type CommandExecution,
+  type CreateRunRequest,
+  type OutboxMessageHandler,
+  type RunSummary,
+  type ScenarioPackRegistry,
+  type ScheduledTick,
+  type SchedulerInstruction,
+  type StreamEnvelope,
+} from './runtime';

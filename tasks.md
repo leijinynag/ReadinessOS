@@ -2,8 +2,8 @@
 
 # ReadinessOS MVP 实施任务清单
 
-> 状态：W2 已完成，W3 未开始
-> 更新日期：2026-07-11
+> 状态：W3 进行中，已完成事件事务与 Run API
+> 更新日期：2026-07-12
 > 依据：[plan.md](./plan.md)
 
 ## 使用规则
@@ -151,22 +151,22 @@
 
 ### Prisma 事件事务
 
-- [ ] `W3-01` 扩展 Prisma Schema，加入 RunEvent、Snapshot、Checkpoint 和 AgentSessionLink。
-- [ ] `W3-02` 扩展 Prisma Schema，加入核心 Projection、Outbox 和 UsageLedger。
-- [ ] `W3-03` 在 Migration SQL 中加入 sequence、idempotencyKey、Check Constraint 和必要索引。
-- [ ] `W3-04` 实现 Run Repository，通过 Snapshot 加后续事件加载聚合。
-- [ ] `W3-05` 实现 Prisma `$transaction`：追加事件、更新 Run version、同步投影和写 Outbox。
-- [ ] `W3-06` 实现 `id + version` 乐观并发控制并校验更新行数。
-- [ ] `W3-07` 实现参数化 TypedSQL 或 `$queryRaw` Outbox 批量锁定。
-- [ ] `W3-08` 添加事务回滚、并发冲突、重复 Command 和 Outbox 重试测试。
+- [x] `W3-01` 扩展 Prisma Schema，加入 RunEvent、Snapshot、Checkpoint 和 AgentSessionLink。
+- [x] `W3-02` 扩展 Prisma Schema，加入核心 Projection、Outbox 和 UsageLedger。
+- [x] `W3-03` 在 Migration SQL 中加入 sequence、idempotencyKey、Check Constraint 和必要索引。
+- [x] `W3-04` 实现 Run Repository，通过 Snapshot 加后续事件加载聚合。
+- [x] `W3-05` 实现 Prisma `$transaction`：追加事件、更新 Run version、同步投影和写 Outbox。
+- [x] `W3-06` 实现 `id + version` 乐观并发控制并校验更新行数。
+- [x] `W3-07` 实现参数化 TypedSQL 或 `$queryRaw` Outbox 批量锁定。
+- [x] `W3-08` 添加事务回滚、并发冲突、重复 Command 和 Outbox 重试测试。
 
 ### Command、Query 与实时流
 
-- [ ] `W3-09` 实现创建、启动、暂停、继续和动作提交 Command API。
-- [ ] `W3-10` 实现 Run Overview 和 Event Cursor Query API。
-- [ ] `W3-11` 实现 SSE/NDJSON StreamEnvelope 和 Cursor 推送。
-- [ ] `W3-12` 实现断线重连、事件去重和 Cursor 缺口补拉。
-- [ ] `W3-13` 添加刷新恢复、重复事件和 sequence gap 集成测试。
+- [x] `W3-09` 实现创建、启动、暂停、继续和动作提交 Command API。
+- [x] `W3-10` 实现 Run Overview 和 Event Cursor Query API。
+- [x] `W3-11` 实现 SSE/NDJSON StreamEnvelope 和 Cursor 推送。
+- [x] `W3-12` 实现断线重连、事件去重和 Cursor 缺口补拉。
+- [x] `W3-13` 添加刷新恢复、重复事件和 sequence gap 集成测试。
 
 ### RunScheduler
 
@@ -193,11 +193,11 @@
 ### W3 验收
 
 - [ ] `W3-A1` Agent 可基于最小 Observation 提出合法 ProposedAction。
-- [ ] `W3-A2` Event、Projection 和 Outbox 保持同事务一致。
-- [ ] `W3-A3` SSE 刷新恢复无重复且能补齐缺口。
+- [x] `W3-A2` Event、Projection 和 Outbox 保持同事务一致。
+- [x] `W3-A3` SSE 刷新恢复无重复且能补齐缺口。
 - [ ] `W3-A4` Pause 后不推进，Resume 后没有并行调度。
 - [ ] `W3-A5` Eve 失败不会改变 WorldState。
-- [ ] `W3-C1` Commit Checkpoint：提交事件事务和 API，建议 `feat(runtime): add event store command API and live stream`。
+- [x] `W3-C1` Commit Checkpoint：提交事件事务和 API，建议 `feat(runtime): add event store command API and live stream`。
 - [ ] `W3-C2` Commit Checkpoint：提交调度系统，建议 `feat(scheduler): add durable run tick workflow`。
 - [ ] `W3-C3` Commit Checkpoint：提交 Eve Adapter，建议 `feat(agent): integrate Eve runtime and proposed actions`。
 - [ ] `W3-P1` Push Checkpoint：推送 W3 分支并更新 PR。

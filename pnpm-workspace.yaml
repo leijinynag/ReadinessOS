@@ -5,6 +5,8 @@ packages:
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
+  '@swc/core': false
+  cbor-extract: false
   esbuild: true
   prisma: true
   sharp: true
