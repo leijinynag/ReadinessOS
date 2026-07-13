@@ -7,14 +7,15 @@ export async function register() {
   });
 
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const [workflowApi, runtime, scheduler, reconciliation] = await Promise.all([
-      import('workflow/api'),
+    const [runtime, scheduler] = await Promise.all([
       import('@/lib/run-runtime'),
       import('@/lib/workflow-run-scheduler'),
-      import('@/workflows/reconcile-runs'),
     ]);
-    runtime.configureRuntimeOutboxHandlers(scheduler.runSchedulerOutboxHandlers);
-    // 多实例可能各自启动对账 Workflow；它们只会重复发起受 generation 保护的 start。
-    await workflowApi.start(reconciliation.reconcileRunsWorkflow, []);
+    runtime.configureRuntimeOutboxHandlers(
+      scheduler.createRunSchedulerOutboxHandlers(
+        scheduler.workflowRunScheduler,
+        runtime.runService,
+      ),
+    );
   }
 }

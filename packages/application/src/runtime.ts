@@ -107,9 +107,26 @@ export type SchedulerInstruction =
       generation: number;
     };
 
+export const runScheduleLeaseTtlMilliseconds = 180_000;
+
+export type RunScheduleLeaseClaim = {
+  runId: string;
+  organizationId: string;
+  generation: number;
+  intervalSeconds: number;
+  firstTickIndex: number;
+  holderId: string;
+};
+
+export type RunScheduleClaimResult =
+  | { status: 'claimed'; lease: RunScheduleLeaseClaim }
+  | { status: 'active' }
+  | { status: 'ineligible' };
+
 export type ScheduledTick = {
   generation: number;
   tickIndex: number;
+  holderId?: string;
 };
 
 export type ClaimedOutboxMessage = {
@@ -351,6 +368,27 @@ export class PrismaRunRepository {
         }
       }
 
+      if (scheduledTick?.holderId) {
+        const lease = await tx.runScheduleLease.findFirst({
+          where: {
+            runId: run.id,
+            organizationId: run.organizationId,
+            generation: scheduledTick.generation,
+            holderId: scheduledTick.holderId,
+            expiresAt: { gt: new Date() },
+          },
+          select: { runId: true },
+        });
+        if (!lease) {
+          return {
+            result: createNoopKernelResult(
+              await this.loadState(tx, run, kernel, jsonRecord(run.scenarioVersion.config)),
+            ),
+            scheduler: undefined,
+          };
+        }
+      }
+
       const alreadyApplied = await tx.runEvent.findUnique({
         where: {
           runId_idempotencyKey: {
@@ -483,6 +521,126 @@ export class PrismaRunRepository {
       cursor: event.sequence,
       event: fromDatabaseEvent(event),
     }));
+  }
+
+  async claimRunSchedule(
+    input: { runId: string; organizationId: string; generation: number },
+    now = new Date(),
+  ): Promise<RunScheduleClaimResult> {
+    return this.client.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM simulation_runs
+        WHERE id = ${input.runId}::uuid AND organization_id = ${input.organizationId}::uuid
+        FOR UPDATE
+      `);
+      const run = await tx.simulationRun.findFirst({
+        where: { id: input.runId, organizationId: input.organizationId },
+        select: {
+          id: true,
+          organizationId: true,
+          status: true,
+          schedulerGeneration: true,
+          nextTickIndex: true,
+          tickIntervalSeconds: true,
+          scheduleLease: true,
+        },
+      });
+      if (!run || run.status !== 'running' || run.schedulerGeneration !== input.generation) {
+        return { status: 'ineligible' };
+      }
+      if (run.scheduleLease?.generation === input.generation && run.scheduleLease.expiresAt > now) {
+        return { status: 'active' };
+      }
+
+      const holderId = randomUUID();
+      const expiresAt = new Date(now.getTime() + runScheduleLeaseTtlMilliseconds);
+      await tx.runScheduleLease.upsert({
+        where: { runId: run.id },
+        create: {
+          runId: run.id,
+          organizationId: run.organizationId,
+          generation: input.generation,
+          holderId,
+          heartbeatAt: now,
+          expiresAt,
+        },
+        update: {
+          organizationId: run.organizationId,
+          generation: input.generation,
+          holderId,
+          heartbeatAt: now,
+          expiresAt,
+        },
+      });
+      return {
+        status: 'claimed',
+        lease: {
+          runId: run.id,
+          organizationId: run.organizationId,
+          generation: input.generation,
+          intervalSeconds: run.tickIntervalSeconds,
+          firstTickIndex: run.nextTickIndex + 1,
+          holderId,
+        },
+      };
+    });
+  }
+
+  async renewRunSchedule(
+    input: { runId: string; organizationId: string; generation: number; holderId: string },
+    now = new Date(),
+  ): Promise<boolean> {
+    return this.client.$transaction(async (tx) => {
+      const run = await tx.simulationRun.findFirst({
+        where: {
+          id: input.runId,
+          organizationId: input.organizationId,
+          status: 'running',
+          schedulerGeneration: input.generation,
+        },
+        select: { id: true },
+      });
+      if (!run) {
+        return false;
+      }
+      const renewed = await tx.runScheduleLease.updateMany({
+        where: {
+          runId: input.runId,
+          organizationId: input.organizationId,
+          generation: input.generation,
+          holderId: input.holderId,
+        },
+        data: {
+          heartbeatAt: now,
+          expiresAt: new Date(now.getTime() + runScheduleLeaseTtlMilliseconds),
+        },
+      });
+      return renewed.count === 1;
+    });
+  }
+
+  async releaseRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+    holderId: string;
+  }): Promise<boolean> {
+    const released = await this.client.runScheduleLease.deleteMany({ where: input });
+    return released.count === 1;
+  }
+
+  async releaseObsoleteRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+  }): Promise<void> {
+    await this.client.runScheduleLease.deleteMany({
+      where: {
+        runId: input.runId,
+        organizationId: input.organizationId,
+        generation: { lt: input.generation },
+      },
+    });
   }
 
   async getLatestRunningRuns(limit = 50): Promise<readonly RunSummary[]> {
@@ -857,6 +1015,7 @@ export class RunApplicationService {
     organizationId: string;
     generation: number;
     tickIndex: number;
+    holderId?: string;
     minutes: number;
     issuedAt: string;
   }): Promise<CommandExecution | undefined> {
@@ -885,6 +1044,7 @@ export class RunApplicationService {
     return this.repository.execute(command, this.requirePack(await this.getRunPackKey(command)), {
       generation: input.generation,
       tickIndex: input.tickIndex,
+      ...(input.holderId === undefined ? {} : { holderId: input.holderId }),
     });
   }
 
@@ -896,24 +1056,64 @@ export class RunApplicationService {
     return this.repository.getLatestRunningRuns(limit);
   }
 
+  async claimRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+  }): Promise<RunScheduleClaimResult> {
+    return this.repository.claimRunSchedule(input);
+  }
+
+  async renewRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+    holderId: string;
+  }): Promise<boolean> {
+    return this.repository.renewRunSchedule(input);
+  }
+
+  async releaseRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+    holderId: string;
+  }): Promise<boolean> {
+    return this.repository.releaseRunSchedule(input);
+  }
+
+  async releaseObsoleteRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+  }): Promise<void> {
+    return this.repository.releaseObsoleteRunSchedule(input);
+  }
+
   /**
-   * 对账只重新启动当前持久化 generation，不改变 Run 状态。重复启动由 tick
-   * 顺序校验和幂等键收敛，因此无需在数据库中追踪 Workflow 实例。
+   * 对账先原子领取缺失或过期租约；有效租约存在时绝不创建新的长生命周期 Workflow。
    */
   async reconcileRunningRuns(scheduler: RunScheduler, limit = 50): Promise<number> {
     const runs = await this.getLatestRunningRuns(limit);
-    await Promise.all(
-      runs.map((run) =>
-        scheduler.start({
-          runId: run.id,
-          organizationId: run.organizationId,
-          generation: run.schedulerGeneration,
-          intervalSeconds: run.tickIntervalSeconds,
-          firstTickIndex: run.nextTickIndex + 1,
-        }),
-      ),
-    );
-    return runs.length;
+    let started = 0;
+    for (const run of runs) {
+      const claim = await this.claimRunSchedule({
+        runId: run.id,
+        organizationId: run.organizationId,
+        generation: run.schedulerGeneration,
+      });
+      if (claim.status !== 'claimed') {
+        continue;
+      }
+      try {
+        await scheduler.start(claim.lease);
+        started += 1;
+      } catch (error) {
+        await this.releaseRunSchedule(claim.lease);
+        throw error;
+      }
+    }
+    return started;
   }
 
   async listEvents(

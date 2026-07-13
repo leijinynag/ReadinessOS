@@ -164,11 +164,29 @@ model SimulationRun {
   outboxMessages  OutboxMessage[]
   agentTraces     AgentTrace[]
   usageLedger     UsageLedger[]
+  scheduleLease   RunScheduleLease?
 
   @@unique([organizationId, createdById, createIdempotencyKey])
   @@index([organizationId, status, createdAt])
   @@index([parentRunId, branchFromSequence])
   @@map("simulation_runs")
+}
+
+model RunScheduleLease {
+  runId          String   @id @map("run_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  generation     Int
+  holderId       String   @map("holder_id") @db.Uuid
+  heartbeatAt    DateTime @map("heartbeat_at")
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  run SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+  @@index([expiresAt])
+  @@map("run_schedule_leases")
 }
 
 model RunParticipant {

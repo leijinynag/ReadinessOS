@@ -378,13 +378,13 @@ describe('PrismaRunRepository', () => {
     await publisher.publishPending(100);
 
     expect(scheduler.started).toEqual([
-      {
+      expect.objectContaining({
         runId: run.id,
         organizationId: fixture.organizationId,
         generation: 1,
         intervalSeconds: 1,
         firstTickIndex: 1,
-      },
+      }),
     ]);
 
     const firstTick = scheduler.takeNextTick(run.id);
@@ -465,25 +465,52 @@ describe('PrismaRunRepository', () => {
     });
   });
 
-  it('重复 start 和 reconciliation 不会回退已取得的 tick', async () => {
+  it('有效租约阻止重复 start，过期后从已持久化 tick 的下一序号恢复', async () => {
     const fixture = await createFixture();
     const service = createRunService();
-    const scheduler = new ManualRunScheduler();
+    const firstScheduler = new ManualRunScheduler();
     const run = await createRun(service, fixture, 'scheduler-reconcile-create');
     await service.execute(startCommand(fixture, run.id, 0, 'scheduler-reconcile-start'));
 
-    await expect(service.reconcileRunningRuns(scheduler)).resolves.toBe(1);
-    expect(scheduler.takeNextTick(run.id)).toMatchObject({ generation: 1, tickIndex: 1 });
-    await expect(service.reconcileRunningRuns(scheduler)).resolves.toBe(1);
-    expect(scheduler.takeNextTick(run.id)).toMatchObject({ generation: 1, tickIndex: 2 });
+    await expect(service.reconcileRunningRuns(firstScheduler)).resolves.toBe(1);
+    const firstTick = firstScheduler.takeNextTick(run.id);
+    expect(firstTick).toMatchObject({ generation: 1, tickIndex: 1 });
+    await expect(
+      service.executeScheduledTick({
+        ...firstTick!,
+        minutes: 1,
+        issuedAt: '2026-07-12T00:01:00.000Z',
+      }),
+    ).resolves.toMatchObject({ result: { status: 'accepted' } });
+
+    const duplicateScheduler = new ManualRunScheduler();
+    await expect(service.reconcileRunningRuns(duplicateScheduler)).resolves.toBe(0);
+    expect(duplicateScheduler.started).toEqual([]);
+
+    await prisma.runScheduleLease.update({
+      where: { runId: run.id },
+      data: {
+        heartbeatAt: new Date('2026-07-11T23:59:00.000Z'),
+        expiresAt: new Date('2026-07-12T00:00:00.000Z'),
+      },
+    });
+    const recoveredScheduler = new ManualRunScheduler();
+    await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(1);
+    expect(recoveredScheduler.started).toEqual([
+      expect.objectContaining({ generation: 1, firstTickIndex: 2 }),
+    ]);
+    expect(recoveredScheduler.takeNextTick(run.id)).toMatchObject({
+      generation: 1,
+      tickIndex: 2,
+    });
 
     await service.execute(
-      runCommand(fixture, run.id, 1, 'scheduler-reconcile-pause', {
+      runCommand(fixture, run.id, 2, 'scheduler-reconcile-pause', {
         type: 'pause-run',
       }),
     );
     await expect(service.getLatestRunningRuns()).resolves.toEqual([]);
-    await expect(service.reconcileRunningRuns(scheduler)).resolves.toBe(0);
+    await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(0);
   });
 
   it('running run 查询限制批量并按最旧更新时间排序', async () => {

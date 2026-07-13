@@ -50,6 +50,7 @@ export interface RunScheduler {
     generation: number;
     intervalSeconds: number;
     firstTickIndex: number;
+    holderId: string;
   }): Promise<void>;
   cancel(input: { runId: string; organizationId: string; generation: number }): Promise<void>;
 }
@@ -65,6 +66,7 @@ export class ManualRunScheduler implements RunScheduler {
     generation: number;
     intervalSeconds: number;
     firstTickIndex: number;
+    holderId: string;
   }> = [];
   readonly cancelled: Array<{ runId: string; organizationId: string; generation: number }> = [];
   private readonly activeSchedules = new Map<
@@ -83,6 +85,7 @@ export class ManualRunScheduler implements RunScheduler {
     generation: number;
     intervalSeconds: number;
     firstTickIndex: number;
+    holderId: string;
   }): Promise<void> {
     this.started.push(input);
     const current = this.activeSchedules.get(input.runId);

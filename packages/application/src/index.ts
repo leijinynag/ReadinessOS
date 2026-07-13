@@ -44,6 +44,8 @@ export {
   type CommandExecution,
   type CreateRunRequest,
   type OutboxMessageHandler,
+  type RunScheduleClaimResult,
+  type RunScheduleLeaseClaim,
   type RunSummary,
   type ScenarioPackRegistry,
   type ScheduledTick,

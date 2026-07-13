@@ -1,22 +1,17 @@
-import { sleep } from 'workflow';
 import { runService } from '@/lib/run-runtime';
 import { workflowRunScheduler } from '@/lib/workflow-run-scheduler';
 
-const reconciliationIntervalMilliseconds = 5 * 60 * 1_000;
 const reconciliationBatchSize = 50;
 
-/** 低频对账允许重复启动；每个有效 tick 仍由数据库 generation 和序号唯一裁决。 */
-export async function reconcileRunsWorkflow(): Promise<void> {
+/** 每次 Cron 只执行一个有界批次；活跃租约存在时 Application 不会重复 start。 */
+export async function reconcileRunsWorkflow(): Promise<number> {
   'use workflow';
 
-  while (true) {
-    await sleep(reconciliationIntervalMilliseconds);
-    await reconcileRunsStep();
-  }
+  return reconcileRunsStep();
 }
 
-async function reconcileRunsStep(): Promise<void> {
+async function reconcileRunsStep(): Promise<number> {
   'use step';
 
-  await runService.reconcileRunningRuns(workflowRunScheduler, reconciliationBatchSize);
+  return runService.reconcileRunningRuns(workflowRunScheduler, reconciliationBatchSize);
 }

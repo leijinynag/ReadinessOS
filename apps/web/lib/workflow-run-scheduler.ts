@@ -1,6 +1,7 @@
 import type {
   ClaimedOutboxMessage,
   OutboxMessageHandler,
+  RunScheduleClaimResult,
   RunScheduler,
 } from '@readinessos/application';
 import { start } from 'workflow/api';
@@ -21,38 +22,70 @@ const cancelInstructionSchema = z.object({
   generation: z.number().int().nonnegative(),
 });
 
-/** Workflow 的实例标识不写入业务库；有效性由 Run generation 和 tick 顺序裁决。 */
+type RunScheduleLeaseService = {
+  claimRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+  }): Promise<RunScheduleClaimResult>;
+  releaseRunSchedule(input: Parameters<RunScheduler['start']>[0]): Promise<boolean>;
+  releaseObsoleteRunSchedule(input: {
+    runId: string;
+    organizationId: string;
+    generation: number;
+  }): Promise<void>;
+};
+
+/** Workflow 是否仍有效由数据库租约的 generation 和 holder 双重裁决。 */
 export class WorkflowRunScheduler implements RunScheduler {
   async start(input: Parameters<RunScheduler['start']>[0]): Promise<void> {
     await start(runTickWorkflow, [input]);
   }
 
   async cancel(): Promise<void> {
-    // 逻辑取消已由事务内 generation 更新完成。旧 Workflow 下次醒来会自行退出。
+    // 物理 Workflow ID 不参与正确性；cancel handler 会释放旧 generation 的租约。
   }
 }
 
 export const workflowRunScheduler = new WorkflowRunScheduler();
 
-function startHandler(scheduler: RunScheduler): OutboxMessageHandler {
+function startHandler(
+  scheduler: RunScheduler,
+  leases: RunScheduleLeaseService,
+): OutboxMessageHandler {
   return {
     async handle(message: ClaimedOutboxMessage) {
       const instruction = startInstructionSchema.parse(message.payload);
-      await scheduler.start({
+      const claim = await leases.claimRunSchedule({
         runId: instruction.runId,
         organizationId: message.organizationId,
         generation: instruction.generation,
-        intervalSeconds: instruction.intervalSeconds,
-        firstTickIndex: instruction.firstTickIndex,
       });
+      if (claim.status !== 'claimed') {
+        return;
+      }
+      try {
+        await scheduler.start(claim.lease);
+      } catch (error) {
+        await leases.releaseRunSchedule(claim.lease);
+        throw error;
+      }
     },
   };
 }
 
-function cancelHandler(scheduler: RunScheduler): OutboxMessageHandler {
+function cancelHandler(
+  scheduler: RunScheduler,
+  leases: RunScheduleLeaseService,
+): OutboxMessageHandler {
   return {
     async handle(message: ClaimedOutboxMessage) {
       const instruction = cancelInstructionSchema.parse(message.payload);
+      await leases.releaseObsoleteRunSchedule({
+        runId: instruction.runId,
+        organizationId: message.organizationId,
+        generation: instruction.generation,
+      });
       await scheduler.cancel({
         runId: instruction.runId,
         organizationId: message.organizationId,
@@ -64,11 +97,10 @@ function cancelHandler(scheduler: RunScheduler): OutboxMessageHandler {
 
 export function createRunSchedulerOutboxHandlers(
   scheduler: RunScheduler,
+  leases: RunScheduleLeaseService,
 ): Readonly<Record<string, OutboxMessageHandler>> {
   return {
-    'run.scheduler.start': startHandler(scheduler),
-    'run.scheduler.cancel': cancelHandler(scheduler),
+    'run.scheduler.start': startHandler(scheduler, leases),
+    'run.scheduler.cancel': cancelHandler(scheduler, leases),
   };
 }
-
-export const runSchedulerOutboxHandlers = createRunSchedulerOutboxHandlers(workflowRunScheduler);
