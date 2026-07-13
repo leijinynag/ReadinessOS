@@ -222,13 +222,13 @@ function throwingSessions(stage: 'send' | 'result'): EveSessionFactory {
     session() {
       return {
         state: { streamIndex: 0 },
-        async send<T>() {
+        async send<T>(): Promise<{ result(): Promise<T> }> {
           if (stage === 'send') throw new Error('send failed');
           return {
-            async result() {
+            async result(): Promise<T> {
               throw new Error('result failed');
             },
-          } as { result(): Promise<never> };
+          };
         },
       };
     },

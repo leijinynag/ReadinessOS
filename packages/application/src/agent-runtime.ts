@@ -176,9 +176,7 @@ export class ManualRunScheduler implements RunScheduler {
     );
   }
 
-  takeNextTick(
-    runId: string,
-  ):
+  takeNextTick(runId: string):
     | {
         runId: string;
         organizationId: string;

@@ -38,9 +38,8 @@ async function main() {
 async function verifyFreshMigration() {
   const url = await recreateDatabase(freshDatabaseName);
   await execFileAsync(
-    process.platform === 'win32' ? 'corepack.cmd' : 'corepack',
+    process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
     [
-      'pnpm',
       '--dir',
       'packages/database',
       'exec',
@@ -106,10 +105,16 @@ async function verifyHistoricalDuplicateUpgrade() {
     );
     const canonical =
       '00000000-0000-0000-0000-000000000005:00000000-0000-0000-0000-000000000006:session-1:7';
-    if (result.rows.length !== 2 || result.rows[0]?.trace_identity !== canonical) {
+    const [canonicalRow, duplicateRow] = result.rows;
+    if (
+      result.rows.length !== 2 ||
+      !canonicalRow ||
+      !duplicateRow ||
+      canonicalRow.trace_identity !== canonical
+    ) {
       throw new Error('Hardening migration did not preserve the canonical legacy identity.');
     }
-    if (result.rows[1]?.trace_identity !== `${canonical}:legacy:${result.rows[1].id}`) {
+    if (duplicateRow.trace_identity !== `${canonical}:legacy:${duplicateRow.id}`) {
       throw new Error('Hardening migration did not disambiguate the duplicate legacy identity.');
     }
     if (new Set(result.rows.map((row) => row.trace_identity)).size !== result.rows.length) {

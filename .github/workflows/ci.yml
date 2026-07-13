@@ -46,12 +46,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm lint
-      - run: pnpm typecheck
       - run: pnpm db:format
       - run: git diff --exit-code -- packages/database/prisma/schema.prisma
       - run: pnpm db:validate
       - run: pnpm db:deploy
       - run: pnpm db:generate
+      # Prisma Client 由 generate 生成，必须在依赖其类型的 TypeScript 检查前完成。
+      - run: pnpm typecheck
       - run: pnpm db:test:migrations
       - run: pnpm test
       - run: pnpm build

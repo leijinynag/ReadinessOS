@@ -4,6 +4,18 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": [
+        "DATABASE_URL",
+        "AUTH_SECRET",
+        "AUTH_DEMO_EMAIL",
+        "AUTH_DEMO_PASSWORD",
+        "DEMO_LOGIN_ENABLED",
+        "CRON_SECRET",
+        "EVE_API_KEY",
+        "EVE_BASE_URL",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "SENTRY_DSN"
+      ],
       "outputs": [".next/**", "dist/**"]
     },
     "dev": {
@@ -20,6 +32,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
+      "env": ["DATABASE_URL", "DIRECT_URL"],
       "outputs": ["coverage/**"]
     },
     "test:watch": {
