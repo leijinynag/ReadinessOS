@@ -1,46 +1,108 @@
 import { z } from 'zod';
 
-/**
- * Agent 只能返回待执行的业务动作。它不持有 WorldState，也不能直接写入
- * 事件表；最终仍由 RunCommand 经过 SimulationKernel 校验和落库。
- */
-export const proposedActionSchema = z.object({
-  participantKey: z.string().min(1).max(128),
-  actionType: z.string().min(1).max(128),
-  parameters: z.record(z.string(), z.unknown()).default({}),
-  rationale: z.string().min(1).max(4_000),
-});
-export type ProposedAction = z.infer<typeof proposedActionSchema>;
+const jsonRecordSchema = z.record(z.string(), z.unknown());
 
 /**
- * 给 Agent 的观察只包含其参与方已经拥有的状态切片和近期事实。
- * 具体的知识域过滤由 Web Adapter 在构造 Observation 时完成。
+ * Eve 只能返回待执行建议。严格 schema 会拒绝 commandId、event、worldPatch 等
+ * 越权控制字段；建议仍需由平台命令管线再次鉴权后才可能执行。
  */
-export const observationSchema = z.object({
-  organizationId: z.string().uuid(),
-  runId: z.string().uuid(),
-  participantId: z.string().uuid(),
-  participantKey: z.string().min(1),
-  virtualTimeMinutes: z.number().int().nonnegative(),
-  world: z.unknown(),
-  recentEvents: z.array(
-    z.object({
-      sequence: z.number().int().positive(),
-      type: z.string().min(1),
-      payload: z.unknown(),
-    }),
-  ),
+export const proposedActionSchema = z
+  .object({
+    participantId: z.string().uuid(),
+    actionType: z.string().min(1).max(128),
+    parameters: jsonRecordSchema.default({}),
+    rationale: z.string().min(1).max(4_000),
+    evidenceRefs: z.array(z.string().min(1).max(256)).max(20).default([]),
+    confidence: z.number().min(0).max(1),
+    clientRequestId: z.string().min(1).max(128),
+  })
+  .strict();
+export type ProposedAction = z.infer<typeof proposedActionSchema>;
+
+const availableActionSchema = z.object({
+  type: z.string().min(1).max(128),
+  label: z.string().min(1).max(256),
+  parameterSchema: jsonRecordSchema.default({}),
 });
+
+export const observationSchema = z
+  .object({
+    organizationId: z.string().uuid(),
+    runId: z.string().uuid(),
+    participant: z.object({
+      id: z.string().uuid(),
+      key: z.string().min(1),
+      displayName: z.string().min(1),
+      objectives: z.array(z.string()),
+    }),
+    virtualTimeMinutes: z.number().int().nonnegative(),
+    visibleState: jsonRecordSchema,
+    visibleSignals: z.array(jsonRecordSchema),
+    recentEvents: z.array(
+      z.object({
+        sequence: z.number().int().positive(),
+        type: z.string().min(1),
+        summary: z.string().max(1_000),
+      }),
+    ),
+    availableActions: z.array(availableActionSchema),
+    budget: z.object({
+      remainingTurns: z.number().int().nonnegative(),
+      remainingTokens: z.number().int().nonnegative(),
+    }),
+  })
+  .strict();
 export type Observation = z.infer<typeof observationSchema>;
 
 export interface AgentHandle {
+  readonly runParticipantId: string;
+  readonly agentKey: string;
   readonly sessionId: string | undefined;
   readonly continuationToken: string | undefined;
   readonly streamIndex: number;
 }
 
+export type AgentRuntimeStatus =
+  'active' | 'waiting_for_input' | 'completed' | 'failed' | 'terminated';
+
+export type AgentInputRequest = {
+  requestId: string;
+  prompt: string;
+};
+
+export type AgentInputResponse = {
+  requestId: string;
+  optionId?: string;
+  text?: string;
+};
+
+export type AgentTurnResult = {
+  handle: AgentHandle;
+  status: AgentRuntimeStatus;
+  proposedAction: ProposedAction | undefined;
+  inputRequests: readonly AgentInputRequest[];
+};
+
 export interface AgentRuntime {
-  proposeAction(input: Observation): Promise<ProposedAction | undefined>;
+  start(input: { runParticipantId: string; agentKey: string }): Promise<AgentHandle>;
+  sendObservation(handle: AgentHandle, observation: Observation): Promise<AgentTurnResult>;
+  answerInput(handle: AgentHandle, response: AgentInputResponse): Promise<AgentTurnResult>;
+  terminate(handle: AgentHandle): Promise<void>;
+  getStatus(handle: AgentHandle): Promise<AgentRuntimeStatus>;
+}
+
+export function validateProposedAction(
+  observation: Observation,
+  candidate: unknown,
+): ProposedAction {
+  const action = proposedActionSchema.parse(candidate);
+  if (action.participantId !== observation.participant.id) {
+    throw new Error('Proposed action participant does not match the observation.');
+  }
+  if (!observation.availableActions.some((available) => available.type === action.actionType)) {
+    throw new Error('Proposed action is not available to this participant.');
+  }
+  return action;
 }
 
 export interface RunScheduler {
@@ -55,48 +117,24 @@ export interface RunScheduler {
   cancel(input: { runId: string; organizationId: string; generation: number }): Promise<void>;
 }
 
-/**
- * 单测可用的调度器。它不触碰墙上时间，调用方可通过 takeNextTick 手动取得
- * 下一次应执行的 tick，再交给 RunApplicationService 执行。
- */
+/** 单测调度器不触碰墙上时间，调用方可手动取得下一 tick。 */
 export class ManualRunScheduler implements RunScheduler {
-  readonly started: Array<{
-    runId: string;
-    organizationId: string;
-    generation: number;
-    intervalSeconds: number;
-    firstTickIndex: number;
-    holderId: string;
-  }> = [];
-  readonly cancelled: Array<{ runId: string; organizationId: string; generation: number }> = [];
+  readonly started: Array<Parameters<RunScheduler['start']>[0]> = [];
+  readonly cancelled: Array<Parameters<RunScheduler['cancel']>[0]> = [];
   private readonly activeSchedules = new Map<
     string,
-    {
-      organizationId: string;
-      generation: number;
-      nextTickIndex: number;
-    }
+    { organizationId: string; generation: number; nextTickIndex: number }
   >();
   private readonly minimumGeneration = new Map<string, number>();
 
-  async start(input: {
-    runId: string;
-    organizationId: string;
-    generation: number;
-    intervalSeconds: number;
-    firstTickIndex: number;
-    holderId: string;
-  }): Promise<void> {
+  async start(input: Parameters<RunScheduler['start']>[0]): Promise<void> {
     this.started.push(input);
     const current = this.activeSchedules.get(input.runId);
-    if (current && current.generation > input.generation) {
-      return;
-    }
-
+    if (current && current.generation > input.generation) return;
     this.activeSchedules.set(input.runId, {
       organizationId: input.organizationId,
       generation: input.generation,
-      // 重复消费同一条 Start Outbox 时，不能把已手动取得的 tick 倒退。
+      // 重复消费同一 Start 时，不能把已手动取得的 tick 倒退。
       nextTickIndex:
         current?.generation === input.generation
           ? Math.max(current.nextTickIndex, input.firstTickIndex)
@@ -104,11 +142,7 @@ export class ManualRunScheduler implements RunScheduler {
     });
   }
 
-  async cancel(input: {
-    runId: string;
-    organizationId: string;
-    generation: number;
-  }): Promise<void> {
+  async cancel(input: Parameters<RunScheduler['cancel']>[0]): Promise<void> {
     this.cancelled.push(input);
     this.minimumGeneration.set(
       input.runId,
@@ -116,23 +150,12 @@ export class ManualRunScheduler implements RunScheduler {
     );
   }
 
-  /**
-   * 返回下一次需要执行的 tick。没有活跃调度时返回 undefined，便于测试精确
-   * 验证 Pause 后不会继续推进、Resume 后只消费新 generation。
-   */
-  takeNextTick(runId: string):
-    | {
-        runId: string;
-        organizationId: string;
-        generation: number;
-        tickIndex: number;
-      }
-    | undefined {
+  takeNextTick(
+    runId: string,
+  ): { runId: string; organizationId: string; generation: number; tickIndex: number } | undefined {
     const schedule = this.activeSchedules.get(runId);
-    if (!schedule || schedule.generation < (this.minimumGeneration.get(runId) ?? 0)) {
+    if (!schedule || schedule.generation < (this.minimumGeneration.get(runId) ?? 0))
       return undefined;
-    }
-
     const tick = {
       runId,
       organizationId: schedule.organizationId,

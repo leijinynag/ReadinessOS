@@ -1,3 +1,4 @@
+export { AgentObservationService } from './agent-observation';
 export type ApplicationBoundary = 'command' | 'query' | 'runtime';
 
 export const organizationRoles = ['owner', 'admin', 'member', 'viewer'] as const;
@@ -27,8 +28,13 @@ export {
   ManualRunScheduler,
   observationSchema,
   proposedActionSchema,
+  validateProposedAction,
   type AgentHandle,
+  type AgentInputRequest,
+  type AgentInputResponse,
   type AgentRuntime,
+  type AgentRuntimeStatus,
+  type AgentTurnResult,
   type Observation,
   type ProposedAction,
   type RunScheduler,

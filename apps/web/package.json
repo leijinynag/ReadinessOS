@@ -18,7 +18,7 @@
     "@readinessos/scenario-pack-saas-incident": "workspace:*",
     "@tanstack/react-virtual": "3.14.5",
     "@vercel/otel": "2.1.3",
-    "ai": "6.0.86",
+    "ai": "7.0.0",
     "eve": "0.22.5",
     "lucide-react": "1.24.0",
     "next": "16.2.10",

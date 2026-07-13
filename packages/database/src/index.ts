@@ -1,3 +1,4 @@
+export type { Prisma, PrismaClient } from '@prisma/client';
 export { prisma } from './prisma';
 export {
   assertOrganizationAccess,

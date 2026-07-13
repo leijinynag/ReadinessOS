@@ -180,26 +180,26 @@
 
 ### Eve Adapter
 
-- [ ] `W3-21` 使用 `withEve()` 接入 Eve，并创建 filesystem-first Agent 目录。
-- [ ] `W3-22` 定义 `AgentRuntime` Port 和 Eve Adapter。
-- [ ] `W3-23` 创建 Director 根 Agent 与最小 Stakeholder Subagent。
-- [ ] `W3-24` 实现 Participant 最小 Observation 构造。
-- [ ] `W3-25` 实现 ProposedAction Zod Schema 和校验 Pipeline。
-- [ ] `W3-26` 持久化 RunParticipant 与 Eve Session 映射及恢复信息。
-- [ ] `W3-27` 消费 NDJSON 生命周期事件并处理 `input.requested` 和失败状态。
-- [ ] `W3-28` 确保 Eve Trace 与 DomainEvent 分开存储和展示。
-- [ ] `W3-29` 添加 Eve Adapter Contract Test 和非法输出测试。
+- [x] `W3-21` 使用 `withEve()` 接入 Eve，并创建 filesystem-first Agent 目录。
+- [x] `W3-22` 定义 `AgentRuntime` Port 和 Eve Adapter。
+- [x] `W3-23` 创建 Director 根 Agent 与最小 Stakeholder Subagent。
+- [x] `W3-24` 实现 Participant 最小 Observation 构造。
+- [x] `W3-25` 实现 ProposedAction Zod Schema 和校验 Pipeline。
+- [x] `W3-26` 持久化 RunParticipant 与 Eve Session 映射及恢复信息。
+- [x] `W3-27` 消费 NDJSON 生命周期事件并处理 `input.requested` 和失败状态。
+- [x] `W3-28` 确保 Eve Trace 与 DomainEvent 分开存储和展示。
+- [x] `W3-29` 添加 Eve Adapter Contract Test 和非法输出测试。
 
 ### W3 验收
 
-- [ ] `W3-A1` Agent 可基于最小 Observation 提出合法 ProposedAction。
+- [x] `W3-A1` Agent 可基于最小 Observation 提出合法 ProposedAction。
 - [x] `W3-A2` Event、Projection 和 Outbox 保持同事务一致。
 - [x] `W3-A3` SSE 刷新恢复无重复且能补齐缺口。
 - [x] `W3-A4` Pause 后不推进，Resume 后没有并行调度。
-- [ ] `W3-A5` Eve 失败不会改变 WorldState。
+- [x] `W3-A5` Eve 失败不会改变 WorldState。
 - [x] `W3-C1` Commit Checkpoint：提交事件事务和 API，建议 `feat(runtime): add event store command API and live stream`。
 - [x] `W3-C2` Commit Checkpoint：提交调度系统，建议 `feat(scheduler): add durable run tick workflow`。
-- [ ] `W3-C3` Commit Checkpoint：提交 Eve Adapter，建议 `feat(agent): integrate Eve runtime and proposed actions`。
+- [x] `W3-C3` Commit Checkpoint：提交 Eve Adapter，建议 `feat(agent): integrate Eve runtime and proposed actions`。
 - [ ] `W3-P1` Push Checkpoint：推送 W3 分支并更新 PR。
 
 ---
