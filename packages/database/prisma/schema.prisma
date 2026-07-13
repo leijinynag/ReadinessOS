@@ -296,6 +296,7 @@ model AgentTrace {
   runParticipantId String?  @map("run_participant_id") @db.Uuid
   sessionId        String?  @map("session_id")
   streamIndex      Int?     @map("stream_index")
+  traceIdentity    String   @unique @map("trace_identity")
   eventType        String   @map("event_type")
   payload          Json
   recordedAt       DateTime @default(now()) @map("recorded_at")
@@ -303,7 +304,7 @@ model AgentTrace {
   run         SimulationRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
   participant RunParticipant? @relation(fields: [runParticipantId], references: [id], onDelete: SetNull)
 
-  @@index([runId, recordedAt])
+  @@index([runId, recordedAt, id])
   @@index([sessionId, streamIndex])
   @@map("agent_traces")
 }

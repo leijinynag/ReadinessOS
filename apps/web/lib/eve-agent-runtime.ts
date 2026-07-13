@@ -6,8 +6,14 @@ import type {
   AgentTurnResult,
   Observation,
   ProposedAction,
+  ProposedActionValidationContext,
 } from '@readinessos/application';
-import { proposedActionSchema, validateProposedAction } from '@readinessos/application';
+import {
+  createProposedActionValidationContext,
+  proposedActionSchema,
+  proposedActionValidationContextSchema,
+  validateProposedActionContext,
+} from '@readinessos/application';
 import type { Prisma, PrismaClient } from '@readinessos/database';
 import {
   Client,
@@ -16,6 +22,7 @@ import {
   type SendTurnInput,
   type SessionState,
 } from 'eve/client';
+import { createHash } from 'node:crypto';
 
 export interface EveSessionLike {
   readonly state: SessionState;
@@ -40,40 +47,64 @@ export class PrismaAgentRuntimeStore {
     return toHandle(link);
   }
 
+  async loadValidationContext(handle: AgentHandle): Promise<ProposedActionValidationContext> {
+    const link = await this.client.agentSessionLink.findUniqueOrThrow({
+      where: {
+        runParticipantId_provider_agentKey: {
+          runParticipantId: handle.runParticipantId,
+          provider: 'eve',
+          agentKey: handle.agentKey,
+        },
+      },
+      select: { metadata: true },
+    });
+    return proposedActionValidationContextSchema.parse(
+      objectValue(link.metadata).validationContext,
+    );
+  }
+
   async persist(
     handle: AgentHandle,
     state: SessionState,
     status: AgentRuntimeStatus,
     events: readonly { type: string; data?: unknown }[],
+    validationContext?: ProposedActionValidationContext,
   ): Promise<AgentHandle> {
     const participant = await this.client.runParticipant.findUniqueOrThrow({
       where: { id: handle.runParticipantId },
       select: { runId: true },
     });
     return this.client.$transaction(async (tx) => {
-      for (let offset = 0; offset < events.length; offset += 1) {
-        const streamIndex = handle.streamIndex + offset;
-        const exists = await tx.agentTrace.findFirst({
-          where: {
+      const sessionIdentity = state.sessionId ?? `pending:${handle.sessionId ?? handle.agentKey}`;
+      await tx.agentTrace.createMany({
+        data: events.map((event, offset) => {
+          const streamIndex = handle.streamIndex + offset;
+          return {
+            runId: participant.runId,
+            runParticipantId: handle.runParticipantId,
             sessionId: state.sessionId ?? null,
             streamIndex,
-          },
-          select: { id: true },
-        });
-        if (!exists) {
-          const event = events[offset]!;
-          await tx.agentTrace.create({
-            data: {
-              runId: participant.runId,
+            traceIdentity: createTraceIdentity({
               runParticipantId: handle.runParticipantId,
-              sessionId: state.sessionId ?? null,
+              sessionIdentity,
               streamIndex,
-              eventType: event.type,
-              payload: json(event.data ?? {}),
-            },
-          });
-        }
-      }
+            }),
+            eventType: event.type,
+            payload: json(event.data ?? {}),
+          };
+        }),
+        skipDuplicates: true,
+      });
+      const currentMetadata = await tx.agentSessionLink.findUniqueOrThrow({
+        where: {
+          runParticipantId_provider_agentKey: {
+            runParticipantId: handle.runParticipantId,
+            provider: 'eve',
+            agentKey: handle.agentKey,
+          },
+        },
+        select: { metadata: true },
+      });
       const link = await tx.agentSessionLink.update({
         where: {
           runParticipantId_provider_agentKey: {
@@ -87,6 +118,10 @@ export class PrismaAgentRuntimeStore {
           continuationToken: state.continuationToken ?? null,
           streamIndex: state.streamIndex,
           status,
+          metadata: json({
+            ...objectValue(currentMetadata.metadata),
+            ...(validationContext === undefined ? {} : { validationContext }),
+          }),
         },
       });
       return toHandle(link);
@@ -132,7 +167,8 @@ export class EveAgentRuntime implements AgentRuntime {
   }
 
   async sendObservation(handle: AgentHandle, observation: Observation): Promise<AgentTurnResult> {
-    return this.send(handle, observation, {
+    const context = createProposedActionValidationContext(observation);
+    return this.send(handle, context, {
       message: '请根据当前 Observation 返回一个合法 ProposedAction。',
       clientContext: JSON.stringify(observation),
       outputSchema: proposedActionSchema,
@@ -145,7 +181,10 @@ export class EveAgentRuntime implements AgentRuntime {
       ...(response.optionId === undefined ? {} : { optionId: response.optionId }),
       ...(response.text === undefined ? {} : { text: response.text }),
     };
-    return this.send(handle, undefined, { inputResponses: [inputResponse] });
+    return this.send(handle, await this.store.loadValidationContext(handle), {
+      inputResponses: [inputResponse],
+      outputSchema: proposedActionSchema,
+    });
   }
 
   terminate(handle: AgentHandle): Promise<void> {
@@ -158,7 +197,7 @@ export class EveAgentRuntime implements AgentRuntime {
 
   private async send(
     handle: AgentHandle,
-    observation: Observation | undefined,
+    validationContext: ProposedActionValidationContext,
     input: SendTurnInput<ProposedAction>,
   ): Promise<AgentTurnResult> {
     const session = this.sessions.session({
@@ -168,16 +207,38 @@ export class EveAgentRuntime implements AgentRuntime {
         ? {}
         : { continuationToken: handle.continuationToken }),
     });
-    const response = await session.send(input);
-    const result = await response.result();
+    let response: { result(): Promise<MessageResult<ProposedAction>> };
+    try {
+      response = await session.send(input);
+    } catch (error) {
+      await this.persistFailure(
+        handle,
+        session.state,
+        'adapter.send_failed',
+        error,
+        validationContext,
+      );
+      throw error;
+    }
+    let result: MessageResult<ProposedAction>;
+    try {
+      result = await response.result();
+    } catch (error) {
+      await this.persistFailure(
+        handle,
+        session.state,
+        'adapter.result_failed',
+        error,
+        validationContext,
+      );
+      throw error;
+    }
     const status = mapStatus(result.status);
     let proposedAction: ProposedAction | undefined;
     let validationError: unknown;
     if (result.status === 'completed' && result.data !== undefined) {
       try {
-        proposedAction = observation
-          ? validateProposedAction(observation, result.data)
-          : proposedActionSchema.parse(result.data);
+        proposedAction = validateProposedActionContext(validationContext, result.data);
       } catch (error) {
         validationError = error;
       }
@@ -198,7 +259,13 @@ export class EveAgentRuntime implements AgentRuntime {
             },
           ];
     const persistedStatus = validationError === undefined ? status : 'failed';
-    const nextHandle = await this.store.persist(handle, session.state, persistedStatus, events);
+    const nextHandle = await this.store.persist(
+      handle,
+      session.state,
+      persistedStatus,
+      events,
+      validationContext,
+    );
     if (validationError !== undefined) {
       throw validationError;
     }
@@ -211,6 +278,31 @@ export class EveAgentRuntime implements AgentRuntime {
         prompt: request.prompt,
       })),
     };
+  }
+
+  private async persistFailure(
+    handle: AgentHandle,
+    state: SessionState,
+    eventType: 'adapter.send_failed' | 'adapter.result_failed',
+    error: unknown,
+    validationContext: ProposedActionValidationContext,
+  ): Promise<void> {
+    try {
+      await this.store.persist(
+        handle,
+        state,
+        'failed',
+        [
+          {
+            type: eventType,
+            data: { message: error instanceof Error ? error.message : String(error) },
+          },
+        ],
+        validationContext,
+      );
+    } catch {
+      // 失败诊断不能替换原始 transport 异常；调用方仍收到真正根因。
+    }
   }
 }
 
@@ -245,6 +337,22 @@ function toHandle(link: {
     continuationToken: link.continuationToken ?? undefined,
     streamIndex: link.streamIndex,
   };
+}
+
+function createTraceIdentity(input: {
+  runParticipantId: string;
+  sessionIdentity: string;
+  streamIndex: number;
+}): string {
+  return createHash('sha256')
+    .update(`${input.runParticipantId}:${input.sessionIdentity}:${input.streamIndex}`)
+    .digest('hex');
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function json(value: unknown): Prisma.InputJsonValue {

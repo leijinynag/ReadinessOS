@@ -91,18 +91,43 @@ export interface AgentRuntime {
   getStatus(handle: AgentHandle): Promise<AgentRuntimeStatus>;
 }
 
+export const proposedActionValidationContextSchema = z.object({
+  participantId: z.string().uuid(),
+  allowedActionTypes: z.array(z.string().min(1).max(128)),
+});
+export type ProposedActionValidationContext = z.infer<typeof proposedActionValidationContextSchema>;
+
+export function createProposedActionValidationContext(
+  observation: Observation,
+): ProposedActionValidationContext {
+  return {
+    participantId: observation.participant.id,
+    allowedActionTypes: observation.availableActions.map((action) => action.type),
+  };
+}
+
+export function validateProposedActionContext(
+  context: ProposedActionValidationContext,
+  candidate: unknown,
+): ProposedAction {
+  const action = proposedActionSchema.parse(candidate);
+  if (action.participantId !== context.participantId) {
+    throw new Error('Proposed action participant does not match the observation.');
+  }
+  if (!context.allowedActionTypes.includes(action.actionType)) {
+    throw new Error('Proposed action is not available to this participant.');
+  }
+  return action;
+}
+
 export function validateProposedAction(
   observation: Observation,
   candidate: unknown,
 ): ProposedAction {
-  const action = proposedActionSchema.parse(candidate);
-  if (action.participantId !== observation.participant.id) {
-    throw new Error('Proposed action participant does not match the observation.');
-  }
-  if (!observation.availableActions.some((available) => available.type === action.actionType)) {
-    throw new Error('Proposed action is not available to this participant.');
-  }
-  return action;
+  return validateProposedActionContext(
+    createProposedActionValidationContext(observation),
+    candidate,
+  );
 }
 
 export interface RunScheduler {
@@ -123,7 +148,7 @@ export class ManualRunScheduler implements RunScheduler {
   readonly cancelled: Array<Parameters<RunScheduler['cancel']>[0]> = [];
   private readonly activeSchedules = new Map<
     string,
-    { organizationId: string; generation: number; nextTickIndex: number }
+    { organizationId: string; generation: number; nextTickIndex: number; holderId: string }
   >();
   private readonly minimumGeneration = new Map<string, number>();
 
@@ -134,6 +159,7 @@ export class ManualRunScheduler implements RunScheduler {
     this.activeSchedules.set(input.runId, {
       organizationId: input.organizationId,
       generation: input.generation,
+      holderId: input.holderId,
       // 重复消费同一 Start 时，不能把已手动取得的 tick 倒退。
       nextTickIndex:
         current?.generation === input.generation
@@ -152,7 +178,15 @@ export class ManualRunScheduler implements RunScheduler {
 
   takeNextTick(
     runId: string,
-  ): { runId: string; organizationId: string; generation: number; tickIndex: number } | undefined {
+  ):
+    | {
+        runId: string;
+        organizationId: string;
+        generation: number;
+        tickIndex: number;
+        holderId: string;
+      }
+    | undefined {
     const schedule = this.activeSchedules.get(runId);
     if (!schedule || schedule.generation < (this.minimumGeneration.get(runId) ?? 0))
       return undefined;
@@ -160,6 +194,7 @@ export class ManualRunScheduler implements RunScheduler {
       runId,
       organizationId: schedule.organizationId,
       generation: schedule.generation,
+      holderId: schedule.holderId,
       tickIndex: schedule.nextTickIndex,
     };
     schedule.nextTickIndex += 1;

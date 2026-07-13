@@ -1020,6 +1020,10 @@ export class SimulationKernel<TState> {
             payload: {
               signalKey: effect.signalKey,
               recipients: [...effect.recipients],
+              requiredKnowledgeScopes: [
+                ...(this.definition.signals.find((candidate) => candidate.key === effect.signalKey)
+                  ?.requiredKnowledgeScopes ?? []),
+              ],
               ...(effect.payload === undefined ? {} : { payload: effect.payload }),
             },
           });

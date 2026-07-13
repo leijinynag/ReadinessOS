@@ -28,7 +28,10 @@ export {
   ManualRunScheduler,
   observationSchema,
   proposedActionSchema,
+  proposedActionValidationContextSchema,
+  createProposedActionValidationContext,
   validateProposedAction,
+  validateProposedActionContext,
   type AgentHandle,
   type AgentInputRequest,
   type AgentInputResponse,
@@ -37,6 +40,7 @@ export {
   type AgentTurnResult,
   type Observation,
   type ProposedAction,
+  type ProposedActionValidationContext,
   type RunScheduler,
 } from './agent-runtime';
 export {

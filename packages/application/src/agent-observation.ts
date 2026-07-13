@@ -1,6 +1,16 @@
 import type { PrismaClient } from '@prisma/client';
 import { observationSchema, type Observation } from './agent-runtime';
 
+const publicEventTypes = new Set([
+  'run.created',
+  'run.started',
+  'run.paused',
+  'run.resumed',
+  'run.completed',
+  'run.failed',
+  'clock.advanced',
+]);
+
 /** 从参与方投影构造最小观察，不读取完整 Snapshot/WorldState。 */
 export class AgentObservationService {
   constructor(private readonly client: PrismaClient) {}
@@ -27,16 +37,24 @@ export class AgentObservationService {
     if (!participant) throw new Error('Agent participant was not found.');
 
     const capabilities = stringArray(participant.capabilities);
+    const knowledgeScopes = new Set(stringArray(participant.knowledgeScopes));
+    const projection = objectValue(participant.projection?.data);
+    const kernelParticipantId = typeof projection.id === 'string' ? projection.id : participant.id;
     const events = await this.client.runEvent.findMany({
-      where: {
-        runId: input.runId,
-        organizationId: input.organizationId,
-        OR: [{ participantId: input.participantId }, { participantId: null }],
-      },
+      where: { runId: input.runId, organizationId: input.organizationId },
       orderBy: { sequence: 'desc' },
-      take: 20,
-      select: { sequence: true, type: true },
+      take: 200,
+      select: { sequence: true, type: true, participantId: true, payload: true },
     });
+    const visibleEvents = events
+      .filter((event) =>
+        isVisibleEvent(event, participant.id, kernelParticipantId, knowledgeScopes),
+      )
+      .slice(0, 20)
+      .reverse();
+    const visibleSignals = visibleEvents
+      .filter((event) => event.type === 'signal.emitted')
+      .map((event) => objectValue(event.payload));
 
     return observationSchema.parse({
       organizationId: input.organizationId,
@@ -48,9 +66,9 @@ export class AgentObservationService {
         objectives: stringArray(participant.objectives),
       },
       virtualTimeMinutes: participant.run.virtualTime,
-      visibleState: objectValue(participant.projection?.data),
-      visibleSignals: [],
-      recentEvents: events.reverse().map((event) => ({
+      visibleState: projection,
+      visibleSignals,
+      recentEvents: visibleEvents.map((event) => ({
         sequence: event.sequence,
         type: event.type,
         summary: event.type,
@@ -66,6 +84,30 @@ export class AgentObservationService {
       },
     });
   }
+}
+
+function isVisibleEvent(
+  event: { type: string; participantId: string | null; payload: unknown },
+  databaseParticipantId: string,
+  kernelParticipantId: string,
+  knowledgeScopes: ReadonlySet<string>,
+): boolean {
+  if (
+    event.participantId === databaseParticipantId ||
+    event.participantId === kernelParticipantId
+  ) {
+    return true;
+  }
+  const payload = objectValue(event.payload);
+  if (event.type === 'signal.emitted') {
+    const recipients = stringArray(payload.recipients);
+    const requiredScopes = stringArray(payload.requiredKnowledgeScopes);
+    return (
+      (recipients.includes(databaseParticipantId) || recipients.includes(kernelParticipantId)) &&
+      requiredScopes.every((scope) => knowledgeScopes.has(scope))
+    );
+  }
+  return event.participantId === null && publicEventTypes.has(event.type);
 }
 
 function stringArray(value: unknown): string[] {

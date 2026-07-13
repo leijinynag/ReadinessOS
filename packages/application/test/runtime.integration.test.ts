@@ -370,7 +370,7 @@ describe('PrismaRunRepository', () => {
     const publisher = new RuntimeOutboxPublisher(
       repository,
       new RunEventHub(),
-      schedulerHandlers(scheduler),
+      schedulerHandlers(scheduler, service),
     );
     const run = await createRun(service, fixture, 'scheduler-lifecycle-create');
 
@@ -513,6 +513,67 @@ describe('PrismaRunRepository', () => {
     await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(0);
   });
 
+  it('并发 claim 只有一个 winner，takeover 后旧 holder 无法续租、tick 或 release', async () => {
+    const fixture = await createFixture();
+    const repository = new PrismaRunRepository(prisma);
+    const service = new RunApplicationService(repository, registry);
+    const run = await createRun(service, fixture, 'scheduler-fencing-create');
+    await service.execute(startCommand(fixture, run.id, 0, 'scheduler-fencing-start'));
+
+    const claims = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        repository.claimRunSchedule({
+          runId: run.id,
+          organizationId: fixture.organizationId,
+          generation: 1,
+        }),
+      ),
+    );
+    expect(claims.filter((claim) => claim.status === 'claimed')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.status === 'active')).toHaveLength(7);
+    const first = claims.find((claim) => claim.status === 'claimed');
+    if (!first || first.status !== 'claimed') throw new Error('Expected claimed lease.');
+
+    const expiredAt = new Date('2026-07-12T00:00:00.000Z');
+    await prisma.runScheduleLease.update({
+      where: { runId: run.id },
+      data: { heartbeatAt: new Date('2026-07-11T23:59:00.000Z'), expiresAt: expiredAt },
+    });
+    await expect(repository.renewRunSchedule(first.lease, expiredAt)).resolves.toBe(false);
+    await expect(repository.releaseRunSchedule(first.lease, expiredAt)).resolves.toBe(false);
+
+    const takeoverNow = new Date();
+    const takeover = await repository.claimRunSchedule(
+      { runId: run.id, organizationId: fixture.organizationId, generation: 1 },
+      takeoverNow,
+    );
+    expect(takeover.status).toBe('claimed');
+    if (takeover.status !== 'claimed') throw new Error('Expected takeover.');
+    expect(takeover.lease.holderId).not.toBe(first.lease.holderId);
+
+    await expect(
+      service.executeScheduledTick({
+        runId: run.id,
+        organizationId: fixture.organizationId,
+        generation: 1,
+        tickIndex: 1,
+        holderId: first.lease.holderId,
+        minutes: 1,
+        issuedAt: '2026-07-12T00:01:00.000Z',
+      }),
+    ).resolves.toMatchObject({ result: { status: 'duplicate', events: [] } });
+    await expect(repository.releaseRunSchedule(first.lease)).resolves.toBe(false);
+    await expect(repository.renewRunSchedule(takeover.lease)).resolves.toBe(true);
+    await expect(
+      service.executeScheduledTick({
+        ...takeover.lease,
+        tickIndex: 1,
+        minutes: 1,
+        issuedAt: '2026-07-12T00:01:01.000Z',
+      }),
+    ).resolves.toMatchObject({ result: { status: 'accepted' } });
+  });
+
   it('running run 查询限制批量并按最旧更新时间排序', async () => {
     const fixture = await createFixture();
     const service = createRunService();
@@ -600,18 +661,31 @@ async function createRun(
 
 function schedulerHandlers(
   scheduler: ManualRunScheduler,
+  service?: RunApplicationService,
 ): Readonly<Record<string, OutboxMessageHandler>> {
   return {
     'run.scheduler.start': {
       async handle(message: ClaimedOutboxMessage) {
         const instruction = message.payload as Extract<SchedulerInstruction, { type: 'start' }>;
-        await scheduler.start({
-          runId: instruction.runId,
-          organizationId: message.organizationId,
-          generation: instruction.generation,
-          intervalSeconds: instruction.intervalSeconds,
-          firstTickIndex: instruction.firstTickIndex,
-        });
+        const claim = service
+          ? await service.claimRunSchedule({
+              runId: instruction.runId,
+              organizationId: message.organizationId,
+              generation: instruction.generation,
+            })
+          : undefined;
+        await scheduler.start(
+          claim?.status === 'claimed'
+            ? claim.lease
+            : {
+                runId: instruction.runId,
+                organizationId: message.organizationId,
+                generation: instruction.generation,
+                intervalSeconds: instruction.intervalSeconds,
+                firstTickIndex: instruction.firstTickIndex,
+                holderId: randomUUID(),
+              },
+        );
       },
     },
     'run.scheduler.cancel': {

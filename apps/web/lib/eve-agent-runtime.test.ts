@@ -44,27 +44,158 @@ describe('EveAgentRuntime contract', () => {
     await expect(prisma.runEvent.count({ where: { runId: fixture.runId } })).resolves.toBe(0);
   });
 
-  it('Eve failure 只写 Trace，不改变 WorldState 或 DomainEvent', async () => {
+  it('send exception 会持久化 failed trace 且不改变 Run', async () => {
     const fixture = await createAgentFixture();
     const before = await prisma.simulationRun.findUniqueOrThrow({ where: { id: fixture.runId } });
     const runtime = new EveAgentRuntime(
-      fakeSessions({ status: 'failed', data: undefined, eventType: 'session.failed' }),
+      throwingSessions('send'),
       new PrismaAgentRuntimeStore(prisma),
     );
     const handle = await runtime.start({
       runParticipantId: fixture.participantId,
       agentKey: 'director',
     });
-    const result = await runtime.sendObservation(handle, observation(fixture));
-    const after = await prisma.simulationRun.findUniqueOrThrow({ where: { id: fixture.runId } });
 
-    expect(result).toMatchObject({ status: 'failed', proposedAction: undefined });
-    expect(after).toMatchObject({ version: before.version, latestSequence: before.latestSequence });
+    await expect(runtime.sendObservation(handle, observation(fixture))).rejects.toThrow(
+      'send failed',
+    );
+    await expect(runtime.getStatus(handle)).resolves.toBe('failed');
+    await expect(
+      prisma.agentTrace.findFirstOrThrow({ where: { runId: fixture.runId } }),
+    ).resolves.toMatchObject({ eventType: 'adapter.send_failed' });
     await expect(prisma.runEvent.count({ where: { runId: fixture.runId } })).resolves.toBe(0);
+    await expect(
+      prisma.simulationRun.findUniqueOrThrow({ where: { id: fixture.runId } }),
+    ).resolves.toMatchObject({
+      version: before.version,
+      latestSequence: before.latestSequence,
+      virtualTime: before.virtualTime,
+    });
+  });
+
+  it('result exception 会持久化 failed trace 且保留原异常', async () => {
+    const fixture = await createAgentFixture();
+    const runtime = new EveAgentRuntime(
+      throwingSessions('result'),
+      new PrismaAgentRuntimeStore(prisma),
+    );
+    const handle = await runtime.start({
+      runParticipantId: fixture.participantId,
+      agentKey: 'director',
+    });
+
+    await expect(runtime.sendObservation(handle, observation(fixture))).rejects.toThrow(
+      'result failed',
+    );
+    await expect(runtime.getStatus(handle)).resolves.toBe('failed');
+    await expect(
+      prisma.agentTrace.findFirstOrThrow({ where: { runId: fixture.runId } }),
+    ).resolves.toMatchObject({ eventType: 'adapter.result_failed' });
+  });
+
+  it('answerInput 继续使用首次 Observation 的 participant/action allowlist', async () => {
+    const fixture = await createAgentFixture();
+    const sessions = queuedSessions([
+      { status: 'waiting', data: undefined },
+      {
+        status: 'completed',
+        data: {
+          participantId: fixture.participantId,
+          actionType: 'delete_run',
+          parameters: {},
+          rationale: 'invalid',
+          evidenceRefs: [],
+          confidence: 1,
+          clientRequestId: 'request-2',
+        },
+      },
+    ]);
+    const runtime = new EveAgentRuntime(sessions, new PrismaAgentRuntimeStore(prisma));
+    const handle = await runtime.start({
+      runParticipantId: fixture.participantId,
+      agentKey: 'director',
+    });
+    const waiting = await runtime.sendObservation(handle, observation(fixture));
+
+    await expect(
+      runtime.answerInput(waiting.handle, { requestId: 'approval', optionId: 'approve' }),
+    ).rejects.toThrow('not available');
+    await expect(runtime.getStatus(waiting.handle)).resolves.toBe('failed');
+  });
+
+  it('并发 replay 与 null session 使用确定性 identity 去重', async () => {
+    const fixture = await createAgentFixture();
+    const store = new PrismaAgentRuntimeStore(prisma);
+    const handle = await store.loadOrCreate(fixture.participantId, 'director');
+    await Promise.all([
+      store.persist(handle, { streamIndex: 1 }, 'failed', [
+        { type: 'adapter.send_failed', data: {} },
+      ]),
+      store.persist(handle, { streamIndex: 1 }, 'failed', [
+        { type: 'adapter.send_failed', data: {} },
+      ]),
+    ]);
     await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(1);
+
+    const second = await prisma.runParticipant.create({
+      data: { runId: fixture.runId, key: 'second', displayName: 'Second', controller: 'agent' },
+    });
+    const secondHandle = await store.loadOrCreate(second.id, 'director');
+    await store.persist(secondHandle, { streamIndex: 1 }, 'failed', [
+      { type: 'adapter.send_failed', data: {} },
+    ]);
+    await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(2);
   });
 });
 
+function queuedSessions(
+  turns: Array<{ status: 'completed' | 'failed' | 'waiting'; data: unknown }>,
+): EveSessionFactory {
+  let index = 0;
+  return {
+    session() {
+      const turn = turns[index++]!;
+      return {
+        state: { sessionId: 'session-1', continuationToken: 'token-1', streamIndex: index },
+        async send<T>() {
+          return {
+            async result() {
+              return {
+                data: turn.data as T,
+                message: undefined,
+                events: [{ type: `session.${turn.status}`, data: {} }] as never[],
+                inputRequests:
+                  turn.status === 'waiting'
+                    ? ([{ requestId: 'approval', prompt: 'Approve?' }] as never[])
+                    : [],
+                sessionId: 'session-1',
+                status: turn.status,
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+function throwingSessions(stage: 'send' | 'result'): EveSessionFactory {
+  return {
+    session() {
+      return {
+        state: { streamIndex: 0 },
+        async send<T>() {
+          if (stage === 'send') throw new Error('send failed');
+          return {
+            async result() {
+              throw new Error('result failed');
+            },
+          } as { result(): Promise<never> };
+        },
+      };
+    },
+  };
+}
 function fakeSessions(input: {
   status: 'completed' | 'failed';
   data: unknown;

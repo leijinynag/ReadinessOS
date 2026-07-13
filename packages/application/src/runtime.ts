@@ -126,7 +126,7 @@ export type RunScheduleClaimResult =
 export type ScheduledTick = {
   generation: number;
   tickIndex: number;
-  holderId?: string;
+  holderId: string;
 };
 
 export type ClaimedOutboxMessage = {
@@ -350,6 +350,9 @@ export class PrismaRunRepository {
     scheduledTick?: ScheduledTick,
   ): Promise<CommandExecution<TState>> {
     return this.client.$transaction(async (tx) => {
+      if (scheduledTick) {
+        await lockRun(tx, command.runId, command.organizationId);
+      }
       const run = await this.requireRun(tx, command.runId, command.organizationId);
       const kernel = new SimulationKernel(pack);
 
@@ -368,7 +371,7 @@ export class PrismaRunRepository {
         }
       }
 
-      if (scheduledTick?.holderId) {
+      if (scheduledTick) {
         const lease = await tx.runScheduleLease.findFirst({
           where: {
             runId: run.id,
@@ -528,11 +531,7 @@ export class PrismaRunRepository {
     now = new Date(),
   ): Promise<RunScheduleClaimResult> {
     return this.client.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`
-        SELECT id FROM simulation_runs
-        WHERE id = ${input.runId}::uuid AND organization_id = ${input.organizationId}::uuid
-        FOR UPDATE
-      `);
+      await lockRun(tx, input.runId, input.organizationId);
       const run = await tx.simulationRun.findFirst({
         where: { id: input.runId, organizationId: input.organizationId },
         select: {
@@ -591,6 +590,7 @@ export class PrismaRunRepository {
     now = new Date(),
   ): Promise<boolean> {
     return this.client.$transaction(async (tx) => {
+      await lockRun(tx, input.runId, input.organizationId);
       const run = await tx.simulationRun.findFirst({
         where: {
           id: input.runId,
@@ -600,15 +600,14 @@ export class PrismaRunRepository {
         },
         select: { id: true },
       });
-      if (!run) {
-        return false;
-      }
+      if (!run) return false;
       const renewed = await tx.runScheduleLease.updateMany({
         where: {
           runId: input.runId,
           organizationId: input.organizationId,
           generation: input.generation,
           holderId: input.holderId,
+          expiresAt: { gt: now },
         },
         data: {
           heartbeatAt: now,
@@ -619,14 +618,23 @@ export class PrismaRunRepository {
     });
   }
 
-  async releaseRunSchedule(input: {
-    runId: string;
-    organizationId: string;
-    generation: number;
-    holderId: string;
-  }): Promise<boolean> {
-    const released = await this.client.runScheduleLease.deleteMany({ where: input });
-    return released.count === 1;
+  async releaseRunSchedule(
+    input: { runId: string; organizationId: string; generation: number; holderId: string },
+    now = new Date(),
+  ): Promise<boolean> {
+    return this.client.$transaction(async (tx) => {
+      await lockRun(tx, input.runId, input.organizationId);
+      const released = await tx.runScheduleLease.deleteMany({
+        where: {
+          runId: input.runId,
+          organizationId: input.organizationId,
+          generation: input.generation,
+          holderId: input.holderId,
+          expiresAt: { gt: now },
+        },
+      });
+      return released.count === 1;
+    });
   }
 
   async releaseObsoleteRunSchedule(input: {
@@ -1015,7 +1023,7 @@ export class RunApplicationService {
     organizationId: string;
     generation: number;
     tickIndex: number;
-    holderId?: string;
+    holderId: string;
     minutes: number;
     issuedAt: string;
   }): Promise<CommandExecution | undefined> {
@@ -1044,7 +1052,7 @@ export class RunApplicationService {
     return this.repository.execute(command, this.requirePack(await this.getRunPackKey(command)), {
       generation: input.generation,
       tickIndex: input.tickIndex,
-      ...(input.holderId === undefined ? {} : { holderId: input.holderId }),
+      holderId: input.holderId,
     });
   }
 
@@ -1187,6 +1195,18 @@ export class RunApplicationService {
   private async getScenarioVersionPackKey(scenarioVersionId: string, organizationId: string) {
     return this.repository.getScenarioVersionPackKey(scenarioVersionId, organizationId);
   }
+}
+
+async function lockRun(
+  tx: Prisma.TransactionClient,
+  runId: string,
+  organizationId: string,
+): Promise<void> {
+  await tx.$queryRaw(Prisma.sql`
+    SELECT id FROM simulation_runs
+    WHERE id = ${runId}::uuid AND organization_id = ${organizationId}::uuid
+    FOR UPDATE
+  `);
 }
 
 function createKernelContext(recordedAt: string) {
