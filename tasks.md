@@ -2,8 +2,8 @@
 
 # ReadinessOS MVP 实施任务清单
 
-> 状态：W3 进行中，已完成事件事务与 Run API
-> 更新日期：2026-07-12
+> 状态：W3 已完成，等待开始 W4 Studio Lite 与 Live 纵向闭环
+> 更新日期：2026-07-13
 > 依据：[plan.md](./plan.md)
 
 ## 使用规则
@@ -200,7 +200,7 @@
 - [x] `W3-C1` Commit Checkpoint：提交事件事务和 API，建议 `feat(runtime): add event store command API and live stream`。
 - [x] `W3-C2` Commit Checkpoint：提交调度系统，建议 `feat(scheduler): add durable run tick workflow`。
 - [x] `W3-C3` Commit Checkpoint：提交 Eve Adapter，建议 `feat(agent): integrate Eve runtime and proposed actions`。
-- [ ] `W3-P1` Push Checkpoint：推送 W3 分支并更新 PR。
+- [x] `W3-P1` Push Checkpoint：已推送 W3 分支并合并至 `main`。
 
 ---
 
