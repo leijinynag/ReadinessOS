@@ -46,7 +46,7 @@ describe('EveAgentRuntime contract', () => {
 
   it('send exception 会持久化 failed trace 且不改变 Run', async () => {
     const fixture = await createAgentFixture();
-    const before = await prisma.simulationRun.findUniqueOrThrow({ where: { id: fixture.runId } });
+    const before = await readWorldPersistence(fixture.runId);
     const runtime = new EveAgentRuntime(
       throwingSessions('send'),
       new PrismaAgentRuntimeStore(prisma),
@@ -64,17 +64,12 @@ describe('EveAgentRuntime contract', () => {
       prisma.agentTrace.findFirstOrThrow({ where: { runId: fixture.runId } }),
     ).resolves.toMatchObject({ eventType: 'adapter.send_failed' });
     await expect(prisma.runEvent.count({ where: { runId: fixture.runId } })).resolves.toBe(0);
-    await expect(
-      prisma.simulationRun.findUniqueOrThrow({ where: { id: fixture.runId } }),
-    ).resolves.toMatchObject({
-      version: before.version,
-      latestSequence: before.latestSequence,
-      virtualTime: before.virtualTime,
-    });
+    expect(await readWorldPersistence(fixture.runId)).toEqual(before);
   });
 
   it('result exception 会持久化 failed trace 且保留原异常', async () => {
     const fixture = await createAgentFixture();
+    const before = await readWorldPersistence(fixture.runId);
     const runtime = new EveAgentRuntime(
       throwingSessions('result'),
       new PrismaAgentRuntimeStore(prisma),
@@ -91,6 +86,7 @@ describe('EveAgentRuntime contract', () => {
     await expect(
       prisma.agentTrace.findFirstOrThrow({ where: { runId: fixture.runId } }),
     ).resolves.toMatchObject({ eventType: 'adapter.result_failed' });
+    expect(await readWorldPersistence(fixture.runId)).toEqual(before);
   });
 
   it('answerInput 继续使用首次 Observation 的 participant/action allowlist', async () => {
@@ -123,6 +119,36 @@ describe('EveAgentRuntime contract', () => {
     await expect(runtime.getStatus(waiting.handle)).resolves.toBe('failed');
   });
 
+  it('answerInput 拒绝与首次 Observation 不同的 participant', async () => {
+    const fixture = await createAgentFixture();
+    const sessions = queuedSessions([
+      { status: 'waiting', data: undefined },
+      {
+        status: 'completed',
+        data: {
+          participantId: randomUUID(),
+          actionType: 'publish_status',
+          parameters: {},
+          rationale: 'wrong participant',
+          evidenceRefs: [],
+          confidence: 1,
+          clientRequestId: 'request-3',
+        },
+      },
+    ]);
+    const runtime = new EveAgentRuntime(sessions, new PrismaAgentRuntimeStore(prisma));
+    const handle = await runtime.start({
+      runParticipantId: fixture.participantId,
+      agentKey: 'director',
+    });
+    const waiting = await runtime.sendObservation(handle, observation(fixture));
+
+    await expect(
+      runtime.answerInput(waiting.handle, { requestId: 'approval', optionId: 'approve' }),
+    ).rejects.toThrow('does not match');
+    await expect(runtime.getStatus(waiting.handle)).resolves.toBe('failed');
+  });
+
   it('并发 replay 与 null session 使用确定性 identity 去重', async () => {
     const fixture = await createAgentFixture();
     const store = new PrismaAgentRuntimeStore(prisma);
@@ -137,6 +163,18 @@ describe('EveAgentRuntime contract', () => {
     ]);
     await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(1);
 
+    const observerHandle = await store.loadOrCreate(fixture.participantId, 'observer');
+    await store.persist(observerHandle, { streamIndex: 1 }, 'failed', [
+      { type: 'adapter.send_failed', data: {} },
+    ]);
+    const sameParticipantTraces = await prisma.agentTrace.findMany({
+      where: { runId: fixture.runId, runParticipantId: fixture.participantId },
+      select: { traceIdentity: true, sessionId: true },
+    });
+    expect(sameParticipantTraces).toHaveLength(2);
+    expect(sameParticipantTraces.every((trace) => trace.sessionId === null)).toBe(true);
+    expect(new Set(sameParticipantTraces.map((trace) => trace.traceIdentity)).size).toBe(2);
+
     const second = await prisma.runParticipant.create({
       data: { runId: fixture.runId, key: 'second', displayName: 'Second', controller: 'agent' },
     });
@@ -144,7 +182,7 @@ describe('EveAgentRuntime contract', () => {
     await store.persist(secondHandle, { streamIndex: 1 }, 'failed', [
       { type: 'adapter.send_failed', data: {} },
     ]);
-    await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(2);
+    await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(3);
   });
 });
 
@@ -278,5 +316,37 @@ async function createAgentFixture() {
       capabilities: ['publish_status'],
     },
   });
+  await prisma.participantProjection.create({
+    data: {
+      runParticipantId: participant.id,
+      runId: run.id,
+      status: 'active',
+      data: { marker: 'participant-world' },
+    },
+  });
+  await prisma.stateSnapshot.create({
+    data: {
+      runId: run.id,
+      sequence: 0,
+      state: { marker: 'snapshot-world' },
+      checksum: 'stable-checksum',
+    },
+  });
   return { organizationId: organization.id, runId: run.id, participantId: participant.id };
+}
+
+async function readWorldPersistence(runId: string) {
+  const [run, events, snapshots, participants] = await Promise.all([
+    prisma.simulationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { version: true, latestSequence: true, virtualTime: true },
+    }),
+    prisma.runEvent.findMany({ where: { runId }, orderBy: { sequence: 'asc' } }),
+    prisma.stateSnapshot.findMany({ where: { runId }, orderBy: { sequence: 'asc' } }),
+    prisma.participantProjection.findMany({
+      where: { runId },
+      orderBy: { runParticipantId: 'asc' },
+    }),
+  ]);
+  return { run, events, snapshots, participants };
 }
