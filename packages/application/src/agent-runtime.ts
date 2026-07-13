@@ -49,12 +49,14 @@ export interface RunScheduler {
     organizationId: string;
     generation: number;
     intervalSeconds: number;
+    firstTickIndex: number;
   }): Promise<void>;
   cancel(input: { runId: string; organizationId: string; generation: number }): Promise<void>;
 }
 
 /**
- * 单测可用的调度器。它不推进时钟，只记录持久化 Outbox 期望触发的操作。
+ * 单测可用的调度器。它不触碰墙上时间，调用方可通过 takeNextTick 手动取得
+ * 下一次应执行的 tick，再交给 RunApplicationService 执行。
  */
 export class ManualRunScheduler implements RunScheduler {
   readonly started: Array<{
@@ -62,16 +64,41 @@ export class ManualRunScheduler implements RunScheduler {
     organizationId: string;
     generation: number;
     intervalSeconds: number;
+    firstTickIndex: number;
   }> = [];
   readonly cancelled: Array<{ runId: string; organizationId: string; generation: number }> = [];
+  private readonly activeSchedules = new Map<
+    string,
+    {
+      organizationId: string;
+      generation: number;
+      nextTickIndex: number;
+    }
+  >();
+  private readonly minimumGeneration = new Map<string, number>();
 
   async start(input: {
     runId: string;
     organizationId: string;
     generation: number;
     intervalSeconds: number;
+    firstTickIndex: number;
   }): Promise<void> {
     this.started.push(input);
+    const current = this.activeSchedules.get(input.runId);
+    if (current && current.generation > input.generation) {
+      return;
+    }
+
+    this.activeSchedules.set(input.runId, {
+      organizationId: input.organizationId,
+      generation: input.generation,
+      // 重复消费同一条 Start Outbox 时，不能把已手动取得的 tick 倒退。
+      nextTickIndex:
+        current?.generation === input.generation
+          ? Math.max(current.nextTickIndex, input.firstTickIndex)
+          : input.firstTickIndex,
+    });
   }
 
   async cancel(input: {
@@ -80,5 +107,36 @@ export class ManualRunScheduler implements RunScheduler {
     generation: number;
   }): Promise<void> {
     this.cancelled.push(input);
+    this.minimumGeneration.set(
+      input.runId,
+      Math.max(this.minimumGeneration.get(input.runId) ?? 0, input.generation),
+    );
+  }
+
+  /**
+   * 返回下一次需要执行的 tick。没有活跃调度时返回 undefined，便于测试精确
+   * 验证 Pause 后不会继续推进、Resume 后只消费新 generation。
+   */
+  takeNextTick(runId: string):
+    | {
+        runId: string;
+        organizationId: string;
+        generation: number;
+        tickIndex: number;
+      }
+    | undefined {
+    const schedule = this.activeSchedules.get(runId);
+    if (!schedule || schedule.generation < (this.minimumGeneration.get(runId) ?? 0)) {
+      return undefined;
+    }
+
+    const tick = {
+      runId,
+      organizationId: schedule.organizationId,
+      generation: schedule.generation,
+      tickIndex: schedule.nextTickIndex,
+    };
+    schedule.nextTickIndex += 1;
+    return tick;
   }
 }

@@ -7,10 +7,15 @@ import type { RunCommand } from '@readinessos/simulation-kernel';
 import { z } from 'zod';
 import {
   InMemoryScenarioPackRegistry,
+  ManualRunScheduler,
   PrismaRunRepository,
   RunApplicationService,
   RunEventHub,
   RuntimeOutboxPublisher,
+  createScheduledTickIdempotencyKey,
+  type ClaimedOutboxMessage,
+  type OutboxMessageHandler,
+  type SchedulerInstruction,
 } from '../src/index.js';
 
 const testParticipantId = '018f4c8b-9ae2-7a72-86bd-4f867befef01';
@@ -356,6 +361,150 @@ describe('PrismaRunRepository', () => {
     controller.abort();
     await expect(duplicateWait).resolves.toMatchObject({ done: true });
   });
+
+  it('持久化调度指令并以 generation 防止 Pause 后的旧 tick 推进', async () => {
+    const fixture = await createFixture();
+    const repository = new PrismaRunRepository(prisma);
+    const service = new RunApplicationService(repository, registry);
+    const scheduler = new ManualRunScheduler();
+    const publisher = new RuntimeOutboxPublisher(
+      repository,
+      new RunEventHub(),
+      schedulerHandlers(scheduler),
+    );
+    const run = await createRun(service, fixture, 'scheduler-lifecycle-create');
+
+    await service.execute(startCommand(fixture, run.id, 0, 'scheduler-start'));
+    await publisher.publishPending(100);
+
+    expect(scheduler.started).toEqual([
+      {
+        runId: run.id,
+        organizationId: fixture.organizationId,
+        generation: 1,
+        intervalSeconds: 1,
+        firstTickIndex: 1,
+      },
+    ]);
+
+    const firstTick = scheduler.takeNextTick(run.id);
+    expect(firstTick).toMatchObject({ generation: 1, tickIndex: 1 });
+    const tickExecution = await service.executeScheduledTick({
+      ...firstTick!,
+      minutes: 1,
+      issuedAt: '2026-07-12T00:01:00.000Z',
+    });
+    expect(tickExecution?.result.status).toBe('accepted');
+    await expect(service.getRun(run.id, fixture.organizationId)).resolves.toMatchObject({
+      virtualTime: 1,
+      nextTickIndex: 1,
+      schedulerGeneration: 1,
+    });
+    await expect(
+      prisma.runEvent.findUnique({
+        where: {
+          runId_idempotencyKey: {
+            runId: run.id,
+            idempotencyKey: createScheduledTickIdempotencyKey({
+              runId: run.id,
+              generation: 1,
+              tickIndex: 1,
+            }),
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ type: 'clock.advanced' });
+
+    const staleTick = scheduler.takeNextTick(run.id);
+    await service.execute(runCommand(fixture, run.id, 2, 'scheduler-pause', { type: 'pause-run' }));
+    await publisher.publishPending(100);
+    expect(scheduler.cancelled).toEqual([
+      {
+        runId: run.id,
+        organizationId: fixture.organizationId,
+        generation: 2,
+      },
+    ]);
+    expect(scheduler.takeNextTick(run.id)).toBeUndefined();
+    await expect(
+      service.executeScheduledTick({
+        ...staleTick!,
+        minutes: 1,
+        issuedAt: '2026-07-12T00:02:00.000Z',
+      }),
+    ).resolves.toBeUndefined();
+
+    await service.execute(
+      runCommand(fixture, run.id, 3, 'scheduler-resume', { type: 'resume-run' }),
+    );
+    await publisher.publishPending(100);
+    expect(scheduler.started.at(-1)).toMatchObject({
+      generation: 3,
+      firstTickIndex: 2,
+    });
+    await expect(
+      service.executeScheduledTick({
+        ...staleTick!,
+        minutes: 1,
+        issuedAt: '2026-07-12T00:03:00.000Z',
+      }),
+    ).resolves.toBeUndefined();
+
+    const resumedTick = scheduler.takeNextTick(run.id);
+    await expect(
+      service.executeScheduledTick({
+        ...resumedTick!,
+        minutes: 1,
+        issuedAt: '2026-07-12T00:04:00.000Z',
+      }),
+    ).resolves.toMatchObject({ result: { status: 'accepted' } });
+    await expect(service.getRun(run.id, fixture.organizationId)).resolves.toMatchObject({
+      virtualTime: 2,
+      nextTickIndex: 2,
+      schedulerGeneration: 3,
+    });
+  });
+
+  it('重复 start 和 reconciliation 不会回退已取得的 tick', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const scheduler = new ManualRunScheduler();
+    const run = await createRun(service, fixture, 'scheduler-reconcile-create');
+    await service.execute(startCommand(fixture, run.id, 0, 'scheduler-reconcile-start'));
+
+    await expect(service.reconcileRunningRuns(scheduler)).resolves.toBe(1);
+    expect(scheduler.takeNextTick(run.id)).toMatchObject({ generation: 1, tickIndex: 1 });
+    await expect(service.reconcileRunningRuns(scheduler)).resolves.toBe(1);
+    expect(scheduler.takeNextTick(run.id)).toMatchObject({ generation: 1, tickIndex: 2 });
+
+    await service.execute(
+      runCommand(fixture, run.id, 1, 'scheduler-reconcile-pause', {
+        type: 'pause-run',
+      }),
+    );
+    await expect(service.getLatestRunningRuns()).resolves.toEqual([]);
+    await expect(service.reconcileRunningRuns(scheduler)).resolves.toBe(0);
+  });
+
+  it('running run 查询限制批量并按最旧更新时间排序', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const first = await createRun(service, fixture, 'running-query-first');
+    const second = await createRun(service, fixture, 'running-query-second');
+    await service.execute(startCommand(fixture, first.id, 0, 'running-query-first-start'));
+    await service.execute(startCommand(fixture, second.id, 0, 'running-query-second-start'));
+    await prisma.simulationRun.update({
+      where: { id: first.id },
+      data: { updatedAt: new Date('2026-07-12T00:00:00.000Z') },
+    });
+    await prisma.simulationRun.update({
+      where: { id: second.id },
+      data: { updatedAt: new Date('2026-07-12T00:01:00.000Z') },
+    });
+
+    const running = await service.getLatestRunningRuns(1);
+    expect(running.map((item) => item.id)).toEqual([first.id]);
+  });
 });
 
 function createRunService() {
@@ -422,11 +571,41 @@ async function createRun(
   });
 }
 
-function startCommand(
+function schedulerHandlers(
+  scheduler: ManualRunScheduler,
+): Readonly<Record<string, OutboxMessageHandler>> {
+  return {
+    'run.scheduler.start': {
+      async handle(message: ClaimedOutboxMessage) {
+        const instruction = message.payload as Extract<SchedulerInstruction, { type: 'start' }>;
+        await scheduler.start({
+          runId: instruction.runId,
+          organizationId: message.organizationId,
+          generation: instruction.generation,
+          intervalSeconds: instruction.intervalSeconds,
+          firstTickIndex: instruction.firstTickIndex,
+        });
+      },
+    },
+    'run.scheduler.cancel': {
+      async handle(message: ClaimedOutboxMessage) {
+        const instruction = message.payload as Extract<SchedulerInstruction, { type: 'cancel' }>;
+        await scheduler.cancel({
+          runId: instruction.runId,
+          organizationId: message.organizationId,
+          generation: instruction.generation,
+        });
+      },
+    },
+  };
+}
+
+function runCommand(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   runId: string,
   expectedRunVersion: number,
   idempotencyKey: string,
+  payload: RunCommand['payload'],
 ): RunCommand {
   const actor: ActorRef = {
     id: fixture.userId,
@@ -442,8 +621,17 @@ function startCommand(
     expectedRunVersion,
     idempotencyKey,
     issuedAt: '2026-07-12T00:00:01.000Z',
-    payload: {
-      type: 'start-run',
-    },
+    payload,
   };
+}
+
+function startCommand(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  runId: string,
+  expectedRunVersion: number,
+  idempotencyKey: string,
+): RunCommand {
+  return runCommand(fixture, runId, expectedRunVersion, idempotencyKey, {
+    type: 'start-run',
+  });
 }

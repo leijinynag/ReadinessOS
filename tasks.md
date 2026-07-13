@@ -170,13 +170,13 @@
 
 ### RunScheduler
 
-- [ ] `W3-14` 定义 `RunScheduler` Port 和调度 generation。
-- [ ] `W3-15` 实现 Workflow DevKit durable sleep Adapter。
-- [ ] `W3-16` 实现稳定的 `tick:{runId}:{generation}:{tickIndex}` 幂等键。
-- [ ] `W3-17` 确保 Pause/Terminal 使旧 tick 成为 no-op，Resume 只产生一个有效 generation。
-- [ ] `W3-18` 实现测试虚拟时钟和手动推进 Adapter。
-- [ ] `W3-19` 实现低频孤儿 Run Reconciliation Job。
-- [ ] `W3-20` 添加 Workflow 重试、重复启动、Pause/Resume 和对账恢复测试。
+- [x] `W3-14` 定义 `RunScheduler` Port 和调度 generation。
+- [x] `W3-15` 实现 Workflow DevKit durable sleep Adapter。
+- [x] `W3-16` 实现稳定的 `tick:{runId}:{generation}:{tickIndex}` 幂等键。
+- [x] `W3-17` 确保 Pause/Terminal 使旧 tick 成为 no-op，Resume 只产生一个有效 generation。
+- [x] `W3-18` 实现测试虚拟时钟和手动推进 Adapter。
+- [x] `W3-19` 实现低频孤儿 Run Reconciliation Job。
+- [x] `W3-20` 添加 Workflow 重试、重复启动、Pause/Resume 和对账恢复测试。
 
 ### Eve Adapter
 
@@ -195,10 +195,10 @@
 - [ ] `W3-A1` Agent 可基于最小 Observation 提出合法 ProposedAction。
 - [x] `W3-A2` Event、Projection 和 Outbox 保持同事务一致。
 - [x] `W3-A3` SSE 刷新恢复无重复且能补齐缺口。
-- [ ] `W3-A4` Pause 后不推进，Resume 后没有并行调度。
+- [x] `W3-A4` Pause 后不推进，Resume 后没有并行调度。
 - [ ] `W3-A5` Eve 失败不会改变 WorldState。
 - [x] `W3-C1` Commit Checkpoint：提交事件事务和 API，建议 `feat(runtime): add event store command API and live stream`。
-- [ ] `W3-C2` Commit Checkpoint：提交调度系统，建议 `feat(scheduler): add durable run tick workflow`。
+- [x] `W3-C2` Commit Checkpoint：提交调度系统，建议 `feat(scheduler): add durable run tick workflow`。
 - [ ] `W3-C3` Commit Checkpoint：提交 Eve Adapter，建议 `feat(agent): integrate Eve runtime and proposed actions`。
 - [ ] `W3-P1` Push Checkpoint：推送 W3 分支并更新 PR。
 

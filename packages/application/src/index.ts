@@ -49,4 +49,5 @@ export {
   type ScheduledTick,
   type SchedulerInstruction,
   type StreamEnvelope,
+  createScheduledTickIdempotencyKey,
 } from './runtime';

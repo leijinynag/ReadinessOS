@@ -17,7 +17,7 @@ const registry = new InMemoryScenarioPackRegistry([saasIncidentPack]);
 const repository = new PrismaRunRepository(prisma);
 const hub = new RunEventHub();
 
-let schedulerHandler: OutboxMessageHandler | undefined;
+let configuredOutboxHandlers: Readonly<Record<string, OutboxMessageHandler>> = {};
 let publisher: RuntimeOutboxPublisher | undefined;
 
 export const runService = new RunApplicationService(repository, registry);
@@ -26,8 +26,8 @@ export { hub as runEventHub, repository as runRepository };
 export function configureRuntimeOutboxHandlers(
   handlers: Readonly<Record<string, OutboxMessageHandler>>,
 ) {
-  schedulerHandler = handlers['run.scheduler.start'];
-  publisher = new RuntimeOutboxPublisher(repository, hub, handlers);
+  configuredOutboxHandlers = handlers;
+  publisher = new RuntimeOutboxPublisher(repository, hub, configuredOutboxHandlers);
 }
 
 /**
@@ -36,10 +36,7 @@ export function configureRuntimeOutboxHandlers(
  */
 export async function drainRuntimeOutbox(): Promise<void> {
   const activePublisher =
-    publisher ??
-    new RuntimeOutboxPublisher(repository, hub, {
-      ...(schedulerHandler ? { 'run.scheduler.start': schedulerHandler } : {}),
-    });
+    publisher ?? new RuntimeOutboxPublisher(repository, hub, configuredOutboxHandlers);
 
   for (let batch = 0; batch < 10; batch += 1) {
     const count = await activePublisher.publishPending(100);

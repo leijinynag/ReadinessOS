@@ -16,6 +16,7 @@ import {
 } from '@readinessos/simulation-kernel';
 import { EventSource, Prisma, PrismaClient, RunStatus } from '@prisma/client';
 import { z } from 'zod';
+import type { RunScheduler } from './agent-runtime';
 
 export const streamEnvelopeSchema = z.object({
   cursor: z.number().int().positive(),
@@ -98,6 +99,7 @@ export type SchedulerInstruction =
       runId: string;
       generation: number;
       intervalSeconds: number;
+      firstTickIndex: number;
     }
   | {
       type: 'cancel';
@@ -487,7 +489,7 @@ export class PrismaRunRepository {
     const runs = await this.client.simulationRun.findMany({
       where: { status: 'running' },
       orderBy: { updatedAt: 'asc' },
-      take: limit,
+      take: Math.min(Math.max(limit, 1), 100),
       include: {
         scenarioVersion: {
           select: { config: true },
@@ -873,7 +875,7 @@ export class RunApplicationService {
       runId: input.runId,
       actor: systemActor(input.organizationId),
       expectedRunVersion: run.version,
-      idempotencyKey: `tick:${input.runId}:${input.generation}:${input.tickIndex}`,
+      idempotencyKey: createScheduledTickIdempotencyKey(input),
       issuedAt: input.issuedAt,
       payload: {
         type: 'advance-clock',
@@ -888,6 +890,30 @@ export class RunApplicationService {
 
   async getRun(runId: string, organizationId: string): Promise<RunSummary> {
     return this.repository.getRun(runId, organizationId);
+  }
+
+  async getLatestRunningRuns(limit = 50): Promise<readonly RunSummary[]> {
+    return this.repository.getLatestRunningRuns(limit);
+  }
+
+  /**
+   * 对账只重新启动当前持久化 generation，不改变 Run 状态。重复启动由 tick
+   * 顺序校验和幂等键收敛，因此无需在数据库中追踪 Workflow 实例。
+   */
+  async reconcileRunningRuns(scheduler: RunScheduler, limit = 50): Promise<number> {
+    const runs = await this.getLatestRunningRuns(limit);
+    await Promise.all(
+      runs.map((run) =>
+        scheduler.start({
+          runId: run.id,
+          organizationId: run.organizationId,
+          generation: run.schedulerGeneration,
+          intervalSeconds: run.tickIntervalSeconds,
+          firstTickIndex: run.nextTickIndex + 1,
+        }),
+      ),
+    );
+    return runs.length;
   }
 
   async listEvents(
@@ -1001,6 +1027,7 @@ function deriveSchedulerInstruction<TState>(
   run: {
     id: string;
     schedulerGeneration: number;
+    nextTickIndex: number;
     tickIntervalSeconds: number;
   },
   result: KernelResult<TState>,
@@ -1019,6 +1046,7 @@ function deriveSchedulerInstruction<TState>(
       runId: run.id,
       generation: run.schedulerGeneration + 1,
       intervalSeconds: run.tickIntervalSeconds,
+      firstTickIndex: run.nextTickIndex + 1,
     };
   }
   if (hasStop) {
@@ -1036,6 +1064,18 @@ function deriveSchedulerInstruction<TState>(
     };
   }
   return undefined;
+}
+
+/**
+ * Tick 的重试、Workflow 重放和重复启动都必须复用这把键。它只由持久化的
+ * Run 标识、调度代次和离散序号组成，不依赖墙上时间或随机值。
+ */
+export function createScheduledTickIdempotencyKey(input: {
+  runId: string;
+  generation: number;
+  tickIndex: number;
+}): string {
+  return `tick:${input.runId}:${input.generation}:${input.tickIndex}`;
 }
 
 function shouldForceSnapshot(events: readonly DomainEvent[]): boolean {
