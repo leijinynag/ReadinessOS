@@ -1,0 +1,23 @@
+packages/application/src/runtime.ts
+  s_b45c549f48cfe4::t_047b3829ce1b76 29-30,886-895,907,1036-1038,1049-1051,1054-1056,1610-1612,1616-1620,1626-1629
+packages/application/test/runtime.integration.test.ts
+  s_b45c549f48cfe4::t_b4d59ceae0987f 23-28,30-51,53-67,265-307,342-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "529402c26a2c43f349bcd9aa8549d81fc3df5207",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
