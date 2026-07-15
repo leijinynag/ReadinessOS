@@ -1,0 +1,29 @@
+apps/web/app/(app)/runs/[runId]/live-workspace.tsx
+  s_b45c549f48cfe4::t_5a42d09443b669 1-316
+apps/web/app/(app)/runs/[runId]/page.test.tsx
+  s_b45c549f48cfe4::t_cf554392bc4706 1-149
+apps/web/app/(app)/runs/[runId]/page.tsx
+  s_b45c549f48cfe4::t_ac7bab7d30e67c 1-82
+apps/web/app/globals.css
+  s_b45c549f48cfe4::t_9e064d6676b038 933-1288,1306-1318,1384-1409
+tasks.md
+  s_b45c549f48cfe4::t_474611cda4de14 5-6,219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b920e59629ecc0e6470d89e2d558807b40b3ce46",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
