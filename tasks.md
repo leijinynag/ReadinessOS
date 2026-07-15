@@ -2,8 +2,8 @@
 
 # ReadinessOS MVP 实施任务清单
 
-> 状态：W3 进行中，已完成事件事务与 Run API
-> 更新日期：2026-07-12
+> 状态：W4 进行中，已完成 Live 页面主布局
+> 更新日期：2026-07-16
 > 依据：[plan.md](./plan.md)
 
 ## 使用规则
@@ -216,7 +216,7 @@
 
 ### Live Runtime
 
-- [ ] `W4-06` 创建 Live 页面主布局和响应式区域。
+- [x] `W4-06` 创建 Live 页面主布局和响应式区域。
 - [ ] `W4-07` 实现 RunEventStore、cursor、去重和 pending command queue。
 - [ ] `W4-08` 实现 Run、Connection 和 Approval XState Actors。
 - [ ] `W4-09` 实现风险摘要、业务指标、目标和虚拟时间。
