@@ -20,46 +20,51 @@ import {
 
 const testParticipantId = '018f4c8b-9ae2-7a72-86bd-4f867befef01';
 
-const runtimeTestPack: ScenarioPack<{ phase: 'created' | 'running' | 'paused' }> =
-  assertScenarioPack({
+const runtimeTestPack: ScenarioPack<{
+  phase: 'created' | 'running' | 'paused';
+  deferredOwnerId?: string;
+}> = assertScenarioPack({
+  key: 'runtime-integration-test',
+  manifest: {
     key: 'runtime-integration-test',
-    manifest: {
-      key: 'runtime-integration-test',
-      name: 'Runtime integration test',
-      description: '用于验证运行时事务边界的最小场景。',
-      version: 1,
-      estimatedDurationMinutes: 5,
+    name: 'Runtime integration test',
+    description: '用于验证运行时事务边界的最小场景。',
+    version: 1,
+    estimatedDurationMinutes: 5,
+  },
+  stateSchema: z.object({
+    phase: z.enum(['created', 'running', 'paused']),
+    deferredOwnerId: z.string().uuid().optional(),
+  }),
+  // 真实场景也会有这类延迟赋值字段。JSON 持久化会移除 undefined，因此它能
+  // 覆盖「写入快照后再读取并启动 Run」的校验和回归。
+  initialState: () => ({ phase: 'created', deferredOwnerId: undefined }),
+  participants: [
+    {
+      id: testParticipantId,
+      key: 'operator',
+      displayName: 'Operator',
+      controller: 'human',
+      capabilities: ['acknowledge'],
+      permissions: ['write:run'],
+      knowledgeScopes: ['run'],
+      objectives: ['complete'],
     },
-    stateSchema: z.object({
-      phase: z.enum(['created', 'running', 'paused']),
-    }),
-    initialState: () => ({ phase: 'created' }),
-    participants: [
-      {
-        id: testParticipantId,
-        key: 'operator',
-        displayName: 'Operator',
-        controller: 'human',
-        capabilities: ['acknowledge'],
-        permissions: ['write:run'],
-        knowledgeScopes: ['run'],
-        objectives: ['complete'],
-      },
-    ],
-    actions: [
-      {
-        key: 'acknowledge',
-        label: 'Acknowledge',
-        risk: 'low',
-        approval: 'none',
-        effects: [],
-      },
-    ],
-    signals: [],
-    injects: [],
-    evaluators: [],
-    uiContributions: [],
-  });
+  ],
+  actions: [
+    {
+      key: 'acknowledge',
+      label: 'Acknowledge',
+      risk: 'low',
+      approval: 'none',
+      effects: [],
+    },
+  ],
+  signals: [],
+  injects: [],
+  evaluators: [],
+  uiContributions: [],
+});
 
 const organizationIds: string[] = [];
 const userIds: string[] = [];
@@ -257,6 +262,49 @@ describe('PrismaRunRepository', () => {
     });
   });
 
+  it('快照含 undefined 状态字段时，创建后仍可读取并启动 Run', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'snapshot-json-normalization');
+
+    await expect(
+      service.execute(startCommand(fixture, run.id, 0, 'snapshot-json-normalization-start')),
+    ).resolves.toMatchObject({
+      result: {
+        status: 'accepted',
+        events: [expect.objectContaining({ type: 'run.started' })],
+      },
+    });
+  });
+
+  it('v1 快照摘要不匹配时从事件流重建状态并启动 Run', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'legacy-snapshot-rebuild');
+
+    await prisma.stateSnapshot.update({
+      where: {
+        runId_sequence: {
+          runId: run.id,
+          sequence: 1,
+        },
+      },
+      data: {
+        schemaVersion: 1,
+        checksum: 'legacy-checksum-generated-before-json-normalization',
+      },
+    });
+
+    await expect(
+      service.execute(startCommand(fixture, run.id, 0, 'legacy-snapshot-rebuild-start')),
+    ).resolves.toMatchObject({
+      result: {
+        status: 'accepted',
+        events: [expect.objectContaining({ type: 'run.started' })],
+      },
+    });
+  });
+
   it('对同一 Command 幂等键只追加一次事件', async () => {
     const fixture = await createFixture();
     const service = createRunService();
@@ -291,7 +339,9 @@ describe('PrismaRunRepository', () => {
     });
     const publisher = new RuntimeOutboxPublisher(repository, new RunEventHub());
 
-    await expect(publisher.publishPending()).resolves.toBe(1);
+    // Outbox 是跨 Run 的全局队列；开发库中可能同时存在其他待处理消息。
+    // 这里验证目标消息的最终状态，不把批次大小当作测试前提。
+    await expect(publisher.publishPending()).resolves.toBeGreaterThanOrEqual(1);
 
     await expect(
       prisma.outboxMessage.findUniqueOrThrow({ where: { id: outbox.id } }),

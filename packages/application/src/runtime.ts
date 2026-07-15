@@ -26,6 +26,8 @@ export const streamEnvelopeSchema = z.object({
 });
 export type StreamEnvelope = z.infer<typeof streamEnvelopeSchema>;
 
+const stateSnapshotSchemaVersion = 2;
+
 const scenarioVersionConfigSchema = z
   .object({
     packKey: z.string().min(1),
@@ -881,8 +883,16 @@ export class PrismaRunRepository {
       where: { runId: run.id },
       orderBy: { sequence: 'desc' },
     });
-    const initialState = snapshot
-      ? parsePersistedSimulationState<TState>(snapshot.state, snapshot.checksum)
+    const persistedSnapshot = snapshot
+      ? parsePersistedSimulationState<TState>(
+          snapshot.state,
+          snapshot.checksum,
+          snapshot.schemaVersion,
+          snapshot.sequence,
+        )
+      : undefined;
+    const initialState = persistedSnapshot
+      ? persistedSnapshot.state
       : kernel.initialize({
           organizationId: run.organizationId,
           runId: run.id,
@@ -894,7 +904,7 @@ export class PrismaRunRepository {
       where: {
         runId: run.id,
         sequence: {
-          gt: snapshot?.sequence ?? 0,
+          gt: persistedSnapshot?.sequence ?? 0,
         },
       },
       orderBy: { sequence: 'asc' },
@@ -1023,6 +1033,9 @@ export class PrismaRunRepository {
     }
 
     if (options.forceSnapshot || result.state.run.latestSequence % this.snapshotInterval === 0) {
+      // `undefined` 会在 JSON 持久化时被移除；校验和必须对同一份规范化 JSON
+      // 计算，否则下一次读取快照时会把合法数据误判为被篡改。
+      const persistedState = toInputJson(result.state);
       await tx.stateSnapshot.upsert({
         where: {
           runId_sequence: {
@@ -1033,12 +1046,14 @@ export class PrismaRunRepository {
         create: {
           runId: run.id,
           sequence: result.state.run.latestSequence,
-          state: toInputJson(result.state),
-          checksum: checksumState(result.state),
+          schemaVersion: stateSnapshotSchemaVersion,
+          state: persistedState,
+          checksum: checksumState(persistedState),
         },
         update: {
-          state: toInputJson(result.state),
-          checksum: checksumState(result.state),
+          schemaVersion: stateSnapshotSchemaVersion,
+          state: persistedState,
+          checksum: checksumState(persistedState),
         },
       });
     }
@@ -1592,16 +1607,26 @@ function checksumState(state: unknown): string {
 function parsePersistedSimulationState<TState>(
   value: Prisma.JsonValue,
   expectedChecksum: string,
-): SimulationState<TState> {
+  schemaVersion: number,
+  sequence: number,
+): { sequence: number; state: SimulationState<TState> } | undefined {
   const parsed = persistedSimulationStateSchema.parse(value);
   const actualChecksum = checksumState(parsed);
   if (actualChecksum !== expectedChecksum) {
+    if (schemaVersion < stateSnapshotSchemaVersion) {
+      // v1 在持久化前计算校验和，含 `undefined` 的状态会产生无效摘要。Snapshot
+      // 只是重放加速缓存，忽略它并从权威 Event Log 重建即可恢复历史 Run。
+      return undefined;
+    }
     throw new ApplicationError(
       'INTERNAL_ERROR',
       'State snapshot checksum does not match its content.',
     );
   }
-  return parsed as SimulationState<TState>;
+  return {
+    sequence,
+    state: parsed as SimulationState<TState>,
+  };
 }
 
 function stableJson(value: unknown): string {
