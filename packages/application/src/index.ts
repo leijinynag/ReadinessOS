@@ -62,4 +62,5 @@ export {
   type SchedulerInstruction,
   type StreamEnvelope,
   createScheduledTickIdempotencyKey,
+  specializeScenarioPack,
 } from './runtime';

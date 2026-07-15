@@ -11,6 +11,7 @@ export default defineConfig([
     '**/generated/**',
     '**/coverage/**',
     '**/node_modules/**',
+    '**/.eve/**',
   ]),
   {
     rules: {

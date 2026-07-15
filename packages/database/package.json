@@ -15,6 +15,7 @@
   "dependencies": {
     "@prisma/client": "6.19.0",
     "@readinessos/domain-events": "workspace:*",
+    "@readinessos/scenario-pack-saas-incident": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {

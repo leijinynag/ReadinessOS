@@ -200,7 +200,7 @@
 - [x] `W3-C1` Commit Checkpoint：提交事件事务和 API，建议 `feat(runtime): add event store command API and live stream`。
 - [x] `W3-C2` Commit Checkpoint：提交调度系统，建议 `feat(scheduler): add durable run tick workflow`。
 - [x] `W3-C3` Commit Checkpoint：提交 Eve Adapter，建议 `feat(agent): integrate Eve runtime and proposed actions`。
-- [ ] `W3-P1` Push Checkpoint：推送 W3 分支并更新 PR。
+- [x] `W3-P1` Push Checkpoint：推送 W3 分支并更新 PR。
 
 ---
 
@@ -208,11 +208,11 @@
 
 ### Studio Lite
 
-- [ ] `W4-01` 实现场景列表和场景详情 Query。
-- [ ] `W4-02` 实现难度、目标、随机种子和参与方启停配置。
-- [ ] `W4-03` 实现 human、agent、system Controller 切换。
-- [ ] `W4-04` 展示参与方 Capability、Knowledge Scope 和只读事件图。
-- [ ] `W4-05` 创建不可变 ScenarioVersion 并启动 Run。
+- [x] `W4-01` 实现场景列表和场景详情 Query。
+- [x] `W4-02` 实现难度、目标、随机种子和参与方启停配置。
+- [x] `W4-03` 实现 human、agent、system Controller 切换。
+- [x] `W4-04` 展示参与方 Capability、Knowledge Scope 和只读事件图。
+- [x] `W4-05` 创建不可变 ScenarioVersion 并启动 Run。
 
 ### Live Runtime
 

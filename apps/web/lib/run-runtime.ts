@@ -1,5 +1,4 @@
 import {
-  InMemoryScenarioPackRegistry,
   PrismaRunRepository,
   RunApplicationService,
   RunEventHub,
@@ -7,20 +6,19 @@ import {
   type OutboxMessageHandler,
 } from '@readinessos/application';
 import { prisma } from '@readinessos/database';
-import { saasIncidentPack } from '@readinessos/scenario-pack-saas-incident';
+import { scenarioPackRegistry } from '@/lib/scenario-pack-registry';
 
 /**
  * Runtime 组合根只存在于 Web 层：Application 保持对 Next、Workflow、Eve
  * 与具体场景包无感，因而内核可在测试或其他宿主中复用。
  */
-const registry = new InMemoryScenarioPackRegistry([saasIncidentPack]);
 const repository = new PrismaRunRepository(prisma);
 const hub = new RunEventHub();
 
 let configuredOutboxHandlers: Readonly<Record<string, OutboxMessageHandler>> = {};
 let publisher: RuntimeOutboxPublisher | undefined;
 
-export const runService = new RunApplicationService(repository, registry);
+export const runService = new RunApplicationService(repository, scenarioPackRegistry);
 export { hub as runEventHub, repository as runRepository };
 
 export function configureRuntimeOutboxHandlers(

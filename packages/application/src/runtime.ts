@@ -10,9 +10,11 @@ import type { ScenarioPack } from '@readinessos/scenario-sdk';
 import {
   SimulationKernel,
   type CreateRunInput,
+  type Effect,
   type KernelResult,
   type RunCommand,
   type SimulationState,
+  type Trigger,
 } from '@readinessos/simulation-kernel';
 import { EventSource, Prisma, PrismaClient, RunStatus } from '@prisma/client';
 import { z } from 'zod';
@@ -24,10 +26,22 @@ export const streamEnvelopeSchema = z.object({
 });
 export type StreamEnvelope = z.infer<typeof streamEnvelopeSchema>;
 
-const scenarioVersionConfigSchema = z.object({
-  packKey: z.string().min(1),
-  tickIntervalSeconds: z.number().int().min(1).max(3_600).optional(),
-});
+const scenarioVersionConfigSchema = z
+  .object({
+    packKey: z.string().min(1),
+    tickIntervalSeconds: z.number().int().min(1).max(3_600).optional(),
+    participants: z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          enabled: z.boolean(),
+          controller: z.enum(['human', 'agent', 'system']),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+type ScenarioVersionRuntimeConfig = z.infer<typeof scenarioVersionConfigSchema>;
 
 const outboxEventPayloadSchema = z.object({
   cursor: z.number().int().positive(),
@@ -141,6 +155,84 @@ export type ClaimedOutboxMessage = {
 
 export interface ScenarioPackRegistry {
   get(key: string): ScenarioPack<unknown> | undefined;
+}
+
+/**
+ * 将已发布版本中的参与方选择收敛成运行时 Pack。版本 config 是静态 Pack 的
+ * 受限派生数据，不能借此注入能力、权限、知识范围或显示名称。
+ */
+export function specializeScenarioPack<TState>(
+  pack: ScenarioPack<TState>,
+  config: ScenarioVersionRuntimeConfig,
+): ScenarioPack<TState> {
+  if (config.participants === undefined) {
+    // W3 和早期版本没有 Studio 参与方配置，必须保持原 Pack 语义。
+    return pack;
+  }
+
+  const participantOverrides = config.participants;
+  const overrides = new Map<string, (typeof config.participants)[number]>();
+  const knownParticipantIds = new Set(pack.participants.map((participant) => participant.id));
+  for (const participant of participantOverrides) {
+    if (!knownParticipantIds.has(participant.id)) {
+      throw new ApplicationError(
+        'VALIDATION_ERROR',
+        `Scenario version references an unknown participant: ${participant.id}.`,
+      );
+    }
+    if (overrides.has(participant.id)) {
+      throw new ApplicationError(
+        'VALIDATION_ERROR',
+        `Scenario version contains a duplicate participant: ${participant.id}.`,
+      );
+    }
+    overrides.set(participant.id, participant);
+  }
+
+  // 有 participants 字段时，它是该版本的完整参与方选择。Studio 停用的
+  // 参与方不会写入新版本，因此未出现的静态参与方也必须排除。
+  const enabledIds = new Set(
+    participantOverrides
+      .filter((participant) => participant.enabled)
+      .map((participant) => participant.id),
+  );
+  const participants = pack.participants
+    .filter((participant) => enabledIds.has(participant.id))
+    .map((participant) => ({
+      ...participant,
+      controller: overrides.get(participant.id)?.controller ?? participant.controller,
+    }));
+
+  const actions = pack.actions
+    .filter((action) => !triggerReferencesDisabledParticipant(action.precondition, enabledIds))
+    .map((action) => ({
+      ...action,
+      effects: filterParticipantEffects(action.effects, enabledIds),
+    }));
+  const injectsWithoutDisabledTriggers = pack.injects
+    .filter((inject) => !triggerReferencesDisabledParticipant(inject.trigger, enabledIds))
+    .map((inject) => ({
+      ...inject,
+      effects: filterParticipantEffects(inject.effects, enabledIds),
+    }));
+  const enabledInjectKeys = new Set(injectsWithoutDisabledTriggers.map((inject) => inject.key));
+  const filterMissingInjectSchedules = (effects: readonly Effect[]) =>
+    effects.filter(
+      (effect) => effect.kind !== 'schedule-inject' || enabledInjectKeys.has(effect.injectKey),
+    );
+
+  return {
+    ...pack,
+    participants,
+    actions: actions.map((action) => ({
+      ...action,
+      effects: filterMissingInjectSchedules(action.effects),
+    })),
+    injects: injectsWithoutDisabledTriggers.map((inject) => ({
+      ...inject,
+      effects: filterMissingInjectSchedules(inject.effects),
+    })),
+  };
 }
 
 /**
@@ -470,14 +562,28 @@ export class PrismaRunRepository {
   }
 
   async getRunPackKey(runId: string, organizationId: string): Promise<string> {
+    return (await this.getRunScenarioVersionConfig(runId, organizationId)).packKey;
+  }
+
+  async getRunScenarioVersionConfig(
+    runId: string,
+    organizationId: string,
+  ): Promise<ScenarioVersionRuntimeConfig> {
     const run = await this.requireRun(this.client, runId, organizationId);
-    return parseScenarioVersionConfig(run.scenarioVersion.config).packKey;
+    return parseScenarioVersionConfig(run.scenarioVersion.config);
   }
 
   async getScenarioVersionPackKey(
     scenarioVersionId: string,
     organizationId: string,
   ): Promise<string> {
+    return (await this.getScenarioVersionConfig(scenarioVersionId, organizationId)).packKey;
+  }
+
+  async getScenarioVersionConfig(
+    scenarioVersionId: string,
+    organizationId: string,
+  ): Promise<ScenarioVersionRuntimeConfig> {
     const scenarioVersion = await this.client.scenarioVersion.findFirst({
       where: {
         id: scenarioVersionId,
@@ -497,7 +603,7 @@ export class PrismaRunRepository {
       );
     }
 
-    return parseScenarioVersionConfig(scenarioVersion.config).packKey;
+    return parseScenarioVersionConfig(scenarioVersion.config);
   }
 
   async listEvents(
@@ -1007,15 +1113,18 @@ export class RunApplicationService {
   ) {}
 
   async createRun(request: CreateRunRequest): Promise<RunSummary> {
-    const packKey = await this.getScenarioVersionPackKey(
+    const config = await this.getScenarioVersionConfig(
       request.scenarioVersionId,
       request.organizationId,
     );
-    return this.repository.createRun(request, this.requirePack(packKey));
+    return this.repository.createRun(request, this.specializePack(config));
   }
 
   async execute(command: RunCommand): Promise<CommandExecution> {
-    return this.repository.execute(command, this.requirePack(await this.getRunPackKey(command)));
+    return this.repository.execute(
+      command,
+      this.specializePack(await this.getRunScenarioVersionConfig(command)),
+    );
   }
 
   async executeScheduledTick(input: {
@@ -1049,11 +1158,15 @@ export class RunApplicationService {
         minutes: input.minutes,
       },
     };
-    return this.repository.execute(command, this.requirePack(await this.getRunPackKey(command)), {
-      generation: input.generation,
-      tickIndex: input.tickIndex,
-      holderId: input.holderId,
-    });
+    return this.repository.execute(
+      command,
+      this.specializePack(await this.getRunScenarioVersionConfig(command)),
+      {
+        generation: input.generation,
+        tickIndex: input.tickIndex,
+        holderId: input.holderId,
+      },
+    );
   }
 
   async getRun(runId: string, organizationId: string): Promise<RunSummary> {
@@ -1188,12 +1301,64 @@ export class RunApplicationService {
     return pack;
   }
 
-  private async getRunPackKey(command: Pick<CommandEnvelope, 'runId' | 'organizationId'>) {
-    return this.repository.getRunPackKey(command.runId, command.organizationId);
+  private specializePack(config: ScenarioVersionRuntimeConfig): ScenarioPack<unknown> {
+    return specializeScenarioPack(this.requirePack(config.packKey), config);
   }
 
-  private async getScenarioVersionPackKey(scenarioVersionId: string, organizationId: string) {
-    return this.repository.getScenarioVersionPackKey(scenarioVersionId, organizationId);
+  private async getRunScenarioVersionConfig(
+    command: Pick<CommandEnvelope, 'runId' | 'organizationId'>,
+  ) {
+    return this.repository.getRunScenarioVersionConfig(command.runId, command.organizationId);
+  }
+
+  private async getScenarioVersionConfig(scenarioVersionId: string, organizationId: string) {
+    return this.repository.getScenarioVersionConfig(scenarioVersionId, organizationId);
+  }
+}
+
+function filterParticipantEffects(
+  effects: readonly Effect[],
+  enabledParticipantIds: ReadonlySet<string>,
+): readonly Effect[] {
+  const filtered: Effect[] = [];
+  for (const effect of effects) {
+    if (effect.kind === 'emit-signal') {
+      filtered.push({
+        ...effect,
+        recipients: effect.recipients.filter((recipientId) =>
+          enabledParticipantIds.has(recipientId),
+        ),
+      });
+      continue;
+    }
+    if (
+      effect.kind === 'change-participant-status' &&
+      !enabledParticipantIds.has(effect.participantId)
+    ) {
+      continue;
+    }
+    filtered.push(effect);
+  }
+  return filtered;
+}
+
+function triggerReferencesDisabledParticipant<TState>(
+  trigger: Trigger<TState> | undefined,
+  enabledParticipantIds: ReadonlySet<string>,
+): boolean {
+  if (!trigger) return false;
+  switch (trigger.kind) {
+    case 'all':
+    case 'any':
+      return trigger.conditions.some((condition) =>
+        triggerReferencesDisabledParticipant(condition, enabledParticipantIds),
+      );
+    case 'not':
+      return triggerReferencesDisabledParticipant(trigger.condition, enabledParticipantIds);
+    case 'participant-action-count-gte':
+      return !enabledParticipantIds.has(trigger.participantId);
+    default:
+      return false;
   }
 }
 
