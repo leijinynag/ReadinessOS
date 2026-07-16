@@ -282,7 +282,7 @@
 - [x] `W5-A3` 分支不复制或修改父运行历史。
 - [x] `W5-A4` Snapshot replay 与完整 replay 一致。
 - [x] `W5-C1` Commit Checkpoint：已提交审批闭环 `feat(approvals): add governed agent action execution`。
-- [ ] `W5-C2` Commit Checkpoint：提交 Review 和分支，建议 `feat(review): add evidence replay and branch comparison`。
+- [x] `W5-C2` Commit Checkpoint：已提交 Review 和分支 `feat(review): add evidence replay and branch comparison`。
 - [ ] `W5-P1` Push Checkpoint：推送 W5 分支并更新 PR。
 
 ---
