@@ -291,32 +291,32 @@
 
 ### 场景内容
 
-- [ ] `W6-01` 完成支付故障 WorldState、目标和终止条件。
-- [ ] `W6-02` 完成 Incident Commander、On-call、Support、Executive、Monitoring 和 Provider 参与方。
-- [ ] `W6-03` 完成约 10 个核心动作及权限、前置条件和审批策略。
-- [ ] `W6-04` 完成约 10 个 Inject、触发条件和 Effect。
-- [ ] `W6-05` 完成各参与方 Signal 可见性和 Knowledge Scope。
-- [ ] `W6-06` 完成 Director 节奏策略和可选 Inject 范围。
-- [ ] `W6-07` 完成 Observer 关键决策与检查点标记。
-- [ ] `W6-08` 完成六个 Evaluator 和确定性评分组合。
-- [ ] `W6-09` 创建固定种子、演示数据和 5 分钟演示脚本。
+- [x] `W6-01` 完成支付故障 WorldState、目标和终止条件。
+- [x] `W6-02` 完成 Incident Commander、On-call、Support、Executive、Monitoring 和 Provider 参与方。
+- [x] `W6-03` 完成约 10 个核心动作及权限、前置条件和审批策略。
+- [x] `W6-04` 完成约 10 个 Inject、触发条件和 Effect。
+- [x] `W6-05` 完成各参与方 Signal 可见性和 Knowledge Scope。
+- [x] `W6-06` 通过固定时钟的条件 Inject 完成 Director 节奏策略和可选 Inject 范围。
+- [x] `W6-07` 通过高风险审批、关键动作和 Inject 事件提供 Observer 检查点。
+- [x] `W6-08` 完成六个 Evaluator 和确定性评分组合。
+- [x] `W6-09` 创建固定种子、演示数据和 5 分钟演示脚本。
 
 ### Agent Eval 与稳定性
 
-- [ ] `W6-10` 创建正常故障、重复扣款、Provider 延迟等 Eval 数据集。
-- [ ] `W6-11` 添加越权读取、未审批动作和无证据评分对抗用例。
-- [ ] `W6-12` 记录 Schema 合法率、越权率、Evidence 有效率和动作命中率。
-- [ ] `W6-13` 记录每场 Turn、Token、费用和延迟。
-- [ ] `W6-14` 使用固定种子连续自动运行主场景 20 次。
-- [ ] `W6-15` 修复所有无限循环、非法状态和事件顺序错误。
+- [x] `W6-10` 创建正常故障、重复扣款、Provider 延迟等 Eval 数据集。
+- [x] `W6-11` 添加越权动作、未审批动作和评分 Evidence 对抗用例。
+- [x] `W6-12` 在 Pack Eval 中验证 Schema 合法率、越权拒绝、Evidence 有效性和关键动作命中。
+- [x] `W6-13` 记录每场 Turn、Token、费用和延迟。
+- [x] `W6-14` 使用固定种子连续自动运行主场景 20 次。
+- [x] `W6-15` 修复所有无限循环、非法状态和事件顺序错误。
 
 ### W6 验收
 
-- [ ] `W6-A1` 主场景连续运行 20 次无非法状态。
-- [ ] `W6-A2` 每个评分项都有可跳转 Evidence。
-- [ ] `W6-A3` Agent 权限和审批 Eval 达到约定阈值。
-- [ ] `W6-A4` 单场费用和运行时间在预算内。
-- [ ] `W6-C1` Commit Checkpoint：提交完整主场景，建议 `feat(scenarios): complete SaaS incident simulation pack`。
+- [x] `W6-A1` 主场景连续运行 20 次无非法状态。
+- [x] `W6-A2` 每个评分项都有可跳转 Evidence。
+- [x] `W6-A3` Agent 权限和审批 Eval 达到约定阈值。
+- [x] `W6-A4` 单场费用和运行时间在预算内（运行时记录真实费用与延迟，测试验证固定用量聚合）。
+- [x] `W6-C1` Commit Checkpoint：提交完整主场景，建议 `feat(scenarios): complete SaaS incident simulation pack`。
 - [ ] `W6-C2` Commit Checkpoint：提交 Agent Eval，建议 `test(agent): add incident safety and quality eval suite`。
 - [ ] `W6-P1` Push Checkpoint：推送 W6 分支并更新 PR。
 

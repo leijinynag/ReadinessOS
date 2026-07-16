@@ -1,6 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { saasIncidentPack } from '@readinessos/scenario-pack-saas-incident';
-import { nextSeedScenarioVersion, studioSeedRevision } from './seed-version';
+import {
+  nextSeedScenarioVersion,
+  saasIncidentSeedRevision,
+  studioSeedRevision,
+} from './seed-version';
 
 const prisma = new PrismaClient();
 
@@ -64,7 +68,7 @@ async function main() {
       name: 'SaaS 支付服务故障',
       description: '支付成功率下降、客户影响扩大时的跨职能事故处置演练。',
       config: {
-        seedRevision: studioSeedRevision,
+        seedRevision: saasIncidentSeedRevision,
         packKey: saasIncidentPack.key,
         defaultDurationMinutes: saasIncidentPack.manifest.estimatedDurationMinutes,
         difficulty: 'intermediate',
@@ -143,7 +147,8 @@ async function main() {
       where: { scenarioId: scenario.id },
       select: { version: true, publishedAt: true, config: true },
     });
-    const nextVersion = nextSeedScenarioVersion(existingVersions, studioSeedRevision);
+    const revision = readSeedRevision(scenarioInput.config);
+    const nextVersion = nextSeedScenarioVersion(existingVersions, revision);
 
     if (nextVersion !== null) {
       // ScenarioVersion 是运行引用的不可变快照；seed 只追加，不更新历史 config 或发布时间。
@@ -157,6 +162,10 @@ async function main() {
       });
     }
   }
+}
+
+function readSeedRevision(config: { readonly seedRevision: string }): string {
+  return config.seedRevision;
 }
 
 main()

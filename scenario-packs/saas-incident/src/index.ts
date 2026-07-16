@@ -3,7 +3,10 @@ import {
   all,
   elapsedMinutesGte,
   eventOccurred,
+  not,
+  participantActionCountGte,
   stateEquals,
+  stateNumberGte,
   type EvaluationDraft,
 } from '@readinessos/simulation-kernel';
 import { z } from 'zod';
@@ -29,13 +32,18 @@ export const saasIncidentStateSchema = z.object({
     errorRate: z.number().min(0).max(1),
     latencyP95Ms: z.number().int().nonnegative(),
     writesDisabled: z.boolean(),
+    retryTrafficFrozen: z.boolean(),
     rollbackStarted: z.boolean(),
+    providerIncidentConfirmed: z.boolean(),
+    providerStatus: z.enum(['unknown', 'degraded', 'recovering', 'healthy']),
     recovered: z.boolean(),
   }),
   impact: z.object({
     affectedCustomers: z.number().int().nonnegative(),
     estimatedRevenueLoss: z.number().nonnegative(),
     duplicateChargesDetected: z.boolean(),
+    duplicateChargeCount: z.number().int().nonnegative(),
+    supportQueueDepth: z.number().int().nonnegative(),
   }),
   response: z.object({
     incidentDeclared: z.boolean(),
@@ -43,6 +51,11 @@ export const saasIncidentStateSchema = z.object({
     ownerParticipantId: z.string().uuid().optional(),
     statusPagePublished: z.boolean(),
     customerCommsSent: z.boolean(),
+    providerContacted: z.boolean(),
+    executiveBriefed: z.boolean(),
+    reconciliationStarted: z.boolean(),
+    reconciliationCompleted: z.boolean(),
+    recoveryVerified: z.boolean(),
   }),
   objectives: z.record(z.string(), z.enum(['healthy', 'at-risk', 'failed'])),
 });
@@ -51,8 +64,19 @@ export type SaasIncidentState = z.infer<typeof saasIncidentStateSchema>;
 
 const evidenceTypes = ['action.executed', 'inject.triggered'] as const;
 
+/**
+ * 当前 Evaluator 契约只能按事件类型引用 Evidence。每项评分都要求至少一项
+ * 关键动作或场景 Inject，因此 Review 侧可稳定定位到对应运行时间线。
+ */
 function evaluation(evaluatorKey: string, score: number, summary: string): EvaluationDraft {
   return { evaluatorKey, score, summary, evidenceEventTypes: evidenceTypes };
+}
+
+function score(condition: boolean, partialCondition = false): number {
+  if (condition) {
+    return 100;
+  }
+  return partialCondition ? 60 : 0;
 }
 
 export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioPack({
@@ -60,8 +84,8 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
   manifest: {
     key: saasIncidentPackKey,
     name: 'SaaS Payment Service Incident',
-    description: '支付服务故障与重复扣费风险的最小确定性演练。',
-    version: 1,
+    description: '支付服务故障、重复扣费风险与跨职能响应的确定性演练。',
+    version: 2,
     estimatedDurationMinutes: 15,
   },
   stateSchema: saasIncidentStateSchema,
@@ -75,13 +99,18 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       errorRate: 0.002,
       latencyP95Ms: 280,
       writesDisabled: false,
+      retryTrafficFrozen: false,
       rollbackStarted: false,
+      providerIncidentConfirmed: false,
+      providerStatus: 'unknown',
       recovered: false,
     },
     impact: {
       affectedCustomers: 0,
       estimatedRevenueLoss: 0,
       duplicateChargesDetected: false,
+      duplicateChargeCount: 0,
+      supportQueueDepth: 0,
     },
     response: {
       incidentDeclared: false,
@@ -89,6 +118,11 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       ownerParticipantId: undefined,
       statusPagePublished: false,
       customerCommsSent: false,
+      providerContacted: false,
+      executiveBriefed: false,
+      reconciliationStarted: false,
+      reconciliationCompleted: false,
+      recoveryVerified: false,
     },
     objectives: {
       serviceAvailability: 'healthy',
@@ -102,8 +136,13 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       key: 'incident-commander',
       displayName: 'Incident Commander',
       controller: 'human',
-      capabilities: ['declare-incident', 'coordinate-response', 'close-incident'],
-      permissions: ['write:incident', 'write:status-page'],
+      capabilities: [
+        'declare-incident',
+        'coordinate-response',
+        'brief-executives',
+        'close-incident',
+      ],
+      permissions: ['write:incident', 'write:status-page', 'write:executive-briefing'],
       knowledgeScopes: ['incident', 'metrics', 'customer-impact'],
       objectives: ['serviceAvailability', 'customerTrust'],
     },
@@ -112,8 +151,21 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       key: 'on-call-engineer',
       displayName: 'On-call Engineer',
       controller: 'agent',
-      capabilities: ['inspect-metrics', 'mitigate-service', 'start-rollback', 'verify-recovery'],
-      permissions: ['read:metrics', 'write:payment-writes', 'write:deployment'],
+      capabilities: [
+        'inspect-metrics',
+        'mitigate-service',
+        'freeze-payment-retries',
+        'start-rollback',
+        'contact-provider',
+        'verify-recovery',
+      ],
+      permissions: [
+        'read:metrics',
+        'write:payment-writes',
+        'write:payment-retries',
+        'write:deployment',
+        'write:provider-ticket',
+      ],
       knowledgeScopes: ['incident', 'metrics', 'provider'],
       objectives: ['serviceAvailability', 'financialIntegrity'],
     },
@@ -122,10 +174,10 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       key: 'customer-support-lead',
       displayName: 'Customer Support Lead',
       controller: 'agent',
-      capabilities: ['publish-status', 'notify-customers'],
-      permissions: ['write:status-page', 'write:customer-comms'],
+      capabilities: ['publish-status', 'notify-customers', 'reconcile-duplicate-charges'],
+      permissions: ['write:status-page', 'write:customer-comms', 'write:financial-remediation'],
       knowledgeScopes: ['incident', 'customer-impact'],
-      objectives: ['customerTrust'],
+      objectives: ['customerTrust', 'financialIntegrity'],
     },
     {
       id: saasIncidentParticipantIds.executiveStakeholder,
@@ -165,9 +217,44 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       requiredKnowledgeScopes: ['incident'],
     },
     {
+      key: 'monitoring-confirmed',
+      label: 'Monitoring confirms payment error spike',
+      requiredKnowledgeScopes: ['metrics'],
+    },
+    {
+      key: 'retry-traffic-surge',
+      label: 'Automatic retries are increasing payment load',
+      requiredKnowledgeScopes: ['incident'],
+    },
+    {
+      key: 'provider-response-delayed',
+      label: 'Payment provider response is delayed',
+      requiredKnowledgeScopes: ['provider'],
+    },
+    {
+      key: 'support-queue-spike',
+      label: 'Customer support queue is escalating',
+      requiredKnowledgeScopes: ['customer-impact'],
+    },
+    {
       key: 'duplicate-charge-risk',
       label: 'Duplicate charge risk detected',
       requiredKnowledgeScopes: ['customer-impact'],
+    },
+    {
+      key: 'executive-escalation',
+      label: 'Executive update is required',
+      requiredKnowledgeScopes: ['customer-impact'],
+    },
+    {
+      key: 'provider-contacted',
+      label: 'Payment provider contacted',
+      requiredKnowledgeScopes: ['provider'],
+    },
+    {
+      key: 'provider-recovery-update',
+      label: 'Payment provider reports recovery in progress',
+      requiredKnowledgeScopes: ['provider'],
     },
     {
       key: 'payment-writes-disabled',
@@ -175,9 +262,14 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       requiredKnowledgeScopes: ['incident'],
     },
     {
-      key: 'provider-contacted',
-      label: 'Payment provider contacted',
-      requiredKnowledgeScopes: ['provider'],
+      key: 'payment-retries-frozen',
+      label: 'Automatic payment retries frozen',
+      requiredKnowledgeScopes: ['incident'],
+    },
+    {
+      key: 'reconciliation-started',
+      label: 'Duplicate charge reconciliation started',
+      requiredKnowledgeScopes: ['customer-impact'],
     },
     {
       key: 'recovery-verified',
@@ -215,6 +307,27 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       effects: [{ kind: 'record-metric', metricKey: 'payment_error_rate', value: 0.47 }],
     },
     {
+      key: 'freeze-payment-retries',
+      label: 'Freeze automatic payment retries',
+      requiredCapabilities: ['freeze-payment-retries'],
+      requiredPermissions: ['write:payment-retries'],
+      requiredKnowledgeScopes: ['incident'],
+      risk: 'high',
+      approval: 'required',
+      precondition: stateEquals<SaasIncidentState>(['response', 'incidentDeclared'], true),
+      effects: [
+        { kind: 'set-state', path: ['service', 'retryTrafficFrozen'], value: true },
+        {
+          kind: 'emit-signal',
+          signalKey: 'payment-retries-frozen',
+          recipients: [
+            saasIncidentParticipantIds.incidentCommander,
+            saasIncidentParticipantIds.customerSupportLead,
+          ],
+        },
+      ],
+    },
+    {
       key: 'disable-payment-writes',
       label: 'Disable payment writes',
       requiredCapabilities: ['mitigate-service'],
@@ -250,7 +363,30 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       ),
       effects: [
         { kind: 'set-state', path: ['service', 'rollbackStarted'], value: true },
+        { kind: 'set-state', path: ['service', 'providerStatus'], value: 'recovering' },
         { kind: 'schedule-inject', injectKey: 'recovery-complete', delayMinutes: 2 },
+      ],
+    },
+    {
+      key: 'contact-provider',
+      label: 'Contact payment provider',
+      requiredCapabilities: ['contact-provider'],
+      requiredPermissions: ['write:provider-ticket'],
+      requiredKnowledgeScopes: ['provider'],
+      risk: 'low',
+      approval: 'none',
+      precondition: stateEquals<SaasIncidentState>(['response', 'incidentDeclared'], true),
+      effects: [
+        { kind: 'set-state', path: ['response', 'providerContacted'], value: true },
+        {
+          kind: 'emit-signal',
+          signalKey: 'provider-contacted',
+          recipients: [
+            saasIncidentParticipantIds.onCallEngineer,
+            saasIncidentParticipantIds.paymentProvider,
+          ],
+        },
+        { kind: 'schedule-inject', injectKey: 'provider-status-update', delayMinutes: 1 },
       ],
     },
     {
@@ -272,23 +408,43 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       requiredKnowledgeScopes: ['customer-impact'],
       risk: 'low',
       approval: 'none',
-      precondition: stateEquals<SaasIncidentState>(['impact', 'affectedCustomers'], 4800),
+      precondition: all(
+        stateEquals<SaasIncidentState>(['response', 'statusPagePublished'], true),
+        stateNumberGte<SaasIncidentState>(['impact', 'affectedCustomers'], 4_800),
+      ),
       effects: [{ kind: 'set-state', path: ['response', 'customerCommsSent'], value: true }],
     },
     {
-      key: 'contact-provider',
-      label: 'Contact payment provider',
-      requiredCapabilities: ['provide-provider-update'],
-      requiredPermissions: ['read:provider'],
-      requiredKnowledgeScopes: ['provider'],
+      key: 'brief-executives',
+      label: 'Brief executive stakeholders',
+      requiredCapabilities: ['brief-executives'],
+      requiredPermissions: ['write:executive-briefing'],
+      requiredKnowledgeScopes: ['customer-impact'],
       risk: 'low',
       approval: 'none',
+      precondition: stateEquals<SaasIncidentState>(['response', 'incidentDeclared'], true),
+      effects: [{ kind: 'set-state', path: ['response', 'executiveBriefed'], value: true }],
+    },
+    {
+      key: 'start-duplicate-charge-reconciliation',
+      label: 'Start duplicate charge reconciliation',
+      requiredCapabilities: ['reconcile-duplicate-charges'],
+      requiredPermissions: ['write:financial-remediation'],
+      requiredKnowledgeScopes: ['customer-impact'],
+      risk: 'low',
+      approval: 'none',
+      precondition: stateEquals<SaasIncidentState>(['impact', 'duplicateChargesDetected'], true),
       effects: [
+        { kind: 'set-state', path: ['response', 'reconciliationStarted'], value: true },
         {
           kind: 'emit-signal',
-          signalKey: 'provider-contacted',
-          recipients: [saasIncidentParticipantIds.onCallEngineer],
+          signalKey: 'reconciliation-started',
+          recipients: [
+            saasIncidentParticipantIds.incidentCommander,
+            saasIncidentParticipantIds.executiveStakeholder,
+          ],
         },
+        { kind: 'schedule-inject', injectKey: 'reconciliation-complete', delayMinutes: 1 },
       ],
     },
     {
@@ -301,6 +457,7 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       approval: 'none',
       precondition: stateEquals<SaasIncidentState>(['service', 'recovered'], true),
       effects: [
+        { kind: 'set-state', path: ['response', 'recoveryVerified'], value: true },
         {
           kind: 'emit-signal',
           signalKey: 'recovery-verified',
@@ -319,11 +476,17 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       approval: 'none',
       precondition: all(
         stateEquals<SaasIncidentState>(['service', 'recovered'], true),
+        stateEquals<SaasIncidentState>(['response', 'recoveryVerified'], true),
         stateEquals<SaasIncidentState>(['response', 'statusPagePublished'], true),
         stateEquals<SaasIncidentState>(['response', 'customerCommsSent'], true),
+        stateEquals<SaasIncidentState>(['response', 'executiveBriefed'], true),
+        stateEquals<SaasIncidentState>(['response', 'reconciliationCompleted'], true),
       ),
       effects: [
-        { kind: 'complete-run', reason: 'payment service recovered and customers notified' },
+        {
+          kind: 'complete-run',
+          reason: 'payment service recovered, customers informed, and duplicate charges reconciled',
+        },
       ],
     },
   ],
@@ -335,6 +498,7 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
         { kind: 'set-state', path: ['service', 'paymentSuccessRate'], value: 0.53 },
         { kind: 'set-state', path: ['service', 'errorRate'], value: 0.47 },
         { kind: 'set-state', path: ['service', 'latencyP95Ms'], value: 5_800 },
+        { kind: 'set-state', path: ['service', 'providerStatus'], value: 'degraded' },
         { kind: 'set-state', path: ['impact', 'affectedCustomers'], value: 4_800 },
         { kind: 'set-state', path: ['impact', 'estimatedRevenueLoss'], value: 38_000 },
         { kind: 'set-state', path: ['objectives', 'serviceAvailability'], value: 'failed' },
@@ -352,10 +516,79 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       ],
     },
     {
+      key: 'monitoring-confirmation',
+      trigger: participantActionCountGte<SaasIncidentState>(
+        saasIncidentParticipantIds.onCallEngineer,
+        'inspect-metrics',
+        1,
+      ),
+      effects: [
+        { kind: 'set-state', path: ['service', 'providerIncidentConfirmed'], value: true },
+        {
+          kind: 'emit-signal',
+          signalKey: 'monitoring-confirmed',
+          recipients: [
+            saasIncidentParticipantIds.incidentCommander,
+            saasIncidentParticipantIds.onCallEngineer,
+          ],
+        },
+      ],
+    },
+    {
+      key: 'retry-traffic-surge',
+      trigger: all(
+        elapsedMinutesGte<SaasIncidentState>(2),
+        not(stateEquals<SaasIncidentState>(['service', 'retryTrafficFrozen'], true)),
+      ),
+      effects: [
+        { kind: 'increment-state', path: ['impact', 'affectedCustomers'], amount: 1_200 },
+        { kind: 'increment-state', path: ['impact', 'estimatedRevenueLoss'], amount: 14_000 },
+        {
+          kind: 'emit-signal',
+          signalKey: 'retry-traffic-surge',
+          recipients: [
+            saasIncidentParticipantIds.incidentCommander,
+            saasIncidentParticipantIds.onCallEngineer,
+          ],
+        },
+      ],
+    },
+    {
+      key: 'provider-response-delay',
+      trigger: all(
+        elapsedMinutesGte<SaasIncidentState>(3),
+        not(stateEquals<SaasIncidentState>(['response', 'providerContacted'], true)),
+      ),
+      effects: [
+        { kind: 'increment-state', path: ['impact', 'estimatedRevenueLoss'], amount: 9_000 },
+        {
+          kind: 'emit-signal',
+          signalKey: 'provider-response-delayed',
+          recipients: [saasIncidentParticipantIds.onCallEngineer],
+        },
+      ],
+    },
+    {
+      key: 'support-queue-spike',
+      trigger: elapsedMinutesGte<SaasIncidentState>(4),
+      effects: [
+        { kind: 'set-state', path: ['impact', 'supportQueueDepth'], value: 640 },
+        {
+          kind: 'emit-signal',
+          signalKey: 'support-queue-spike',
+          recipients: [
+            saasIncidentParticipantIds.customerSupportLead,
+            saasIncidentParticipantIds.incidentCommander,
+          ],
+        },
+      ],
+    },
+    {
       key: 'duplicate-charge-escalation',
       trigger: elapsedMinutesGte<SaasIncidentState>(5),
       effects: [
         { kind: 'set-state', path: ['impact', 'duplicateChargesDetected'], value: true },
+        { kind: 'set-state', path: ['impact', 'duplicateChargeCount'], value: 87 },
         { kind: 'set-state', path: ['objectives', 'financialIntegrity'], value: 'at-risk' },
         {
           kind: 'emit-signal',
@@ -369,13 +602,48 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       ],
     },
     {
+      key: 'executive-escalation',
+      trigger: all(
+        elapsedMinutesGte<SaasIncidentState>(6),
+        not(stateEquals<SaasIncidentState>(['response', 'executiveBriefed'], true)),
+      ),
+      effects: [
+        {
+          kind: 'emit-signal',
+          signalKey: 'executive-escalation',
+          recipients: [
+            saasIncidentParticipantIds.incidentCommander,
+            saasIncidentParticipantIds.executiveStakeholder,
+          ],
+        },
+      ],
+    },
+    {
+      key: 'provider-status-update',
+      effects: [
+        { kind: 'set-state', path: ['service', 'providerStatus'], value: 'recovering' },
+        {
+          kind: 'emit-signal',
+          signalKey: 'provider-recovery-update',
+          recipients: [saasIncidentParticipantIds.onCallEngineer],
+        },
+      ],
+    },
+    {
       key: 'recovery-complete',
       effects: [
         { kind: 'set-state', path: ['service', 'paymentSuccessRate'], value: 0.999 },
         { kind: 'set-state', path: ['service', 'errorRate'], value: 0.001 },
         { kind: 'set-state', path: ['service', 'latencyP95Ms'], value: 310 },
+        { kind: 'set-state', path: ['service', 'providerStatus'], value: 'healthy' },
         { kind: 'set-state', path: ['service', 'recovered'], value: true },
-        { kind: 'set-state', path: ['objectives', 'serviceAvailability'], value: 'healthy' },
+      ],
+    },
+    {
+      key: 'reconciliation-complete',
+      effects: [
+        { kind: 'set-state', path: ['response', 'reconciliationCompleted'], value: true },
+        { kind: 'set-state', path: ['objectives', 'financialIntegrity'], value: 'healthy' },
       ],
     },
   ],
@@ -385,8 +653,15 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       evaluate: ({ state }) =>
         evaluation(
           'detection-speed',
-          state.world.response.incidentDeclared ? 100 : 0,
-          state.world.response.incidentDeclared ? '已完成事件声明。' : '尚未声明事件。',
+          score(
+            state.world.response.incidentDeclared && state.world.service.providerIncidentConfirmed,
+            state.world.response.incidentDeclared,
+          ),
+          state.world.response.incidentDeclared && state.world.service.providerIncidentConfirmed
+            ? '已声明 SEV1 并通过监控确认支付故障。'
+            : state.world.response.incidentDeclared
+              ? '已声明事件，但尚未完成监控确认。'
+              : '尚未声明支付服务事件。',
         ),
     },
     {
@@ -394,8 +669,15 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       evaluate: ({ state }) =>
         evaluation(
           'escalation-quality',
-          state.world.response.statusPagePublished ? 100 : 0,
-          state.world.response.statusPagePublished ? '状态页已发布。' : '状态页尚未发布。',
+          score(
+            state.world.response.statusPagePublished && state.world.response.executiveBriefed,
+            state.world.response.statusPagePublished,
+          ),
+          state.world.response.statusPagePublished && state.world.response.executiveBriefed
+            ? '状态页与管理层沟通均已完成。'
+            : state.world.response.statusPagePublished
+              ? '已发布状态页，但尚未完成管理层同步。'
+              : '尚未建立对外升级沟通。',
         ),
     },
     {
@@ -403,8 +685,17 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       evaluate: ({ state }) =>
         evaluation(
           'decision-leadership',
-          state.world.response.ownerParticipantId ? 100 : 0,
-          state.world.response.ownerParticipantId ? '已建立事件负责人。' : '尚未指定事件负责人。',
+          score(
+            Boolean(state.world.response.ownerParticipantId) &&
+              state.world.service.retryTrafficFrozen &&
+              state.world.service.writesDisabled,
+            Boolean(state.world.response.ownerParticipantId),
+          ),
+          state.world.service.retryTrafficFrozen && state.world.service.writesDisabled
+            ? '负责人已明确，并完成重试冻结和写入隔离。'
+            : state.world.response.ownerParticipantId
+              ? '已明确负责人，但关键风险决策尚未全部执行。'
+              : '尚未形成明确的事件指挥责任。',
         ),
     },
     {
@@ -412,10 +703,15 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       evaluate: ({ state }) =>
         evaluation(
           'mitigation-speed',
-          state.world.service.writesDisabled && state.world.service.rollbackStarted ? 100 : 0,
-          state.world.service.writesDisabled && state.world.service.rollbackStarted
-            ? '已完成写入隔离和回滚。'
-            : '缓解措施尚未完成。',
+          score(
+            state.world.service.writesDisabled &&
+              state.world.service.rollbackStarted &&
+              state.world.service.recovered,
+            state.world.service.writesDisabled || state.world.service.rollbackStarted,
+          ),
+          state.world.service.recovered
+            ? '隔离、回滚和服务恢复均已完成。'
+            : '服务缓解动作尚未形成恢复闭环。',
         ),
     },
     {
@@ -423,8 +719,15 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       evaluate: ({ state }) =>
         evaluation(
           'customer-communication',
-          state.world.response.customerCommsSent ? 100 : 0,
-          state.world.response.customerCommsSent ? '已通知受影响客户。' : '尚未发送客户通知。',
+          score(
+            state.world.response.statusPagePublished &&
+              state.world.response.customerCommsSent &&
+              state.world.response.reconciliationStarted,
+            state.world.response.statusPagePublished || state.world.response.customerCommsSent,
+          ),
+          state.world.response.customerCommsSent && state.world.response.reconciliationStarted
+            ? '客户通知和重复扣费处置均已启动。'
+            : '客户影响沟通或财务补救尚未完整覆盖。',
         ),
     },
     {
@@ -432,8 +735,15 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       evaluate: ({ state }) =>
         evaluation(
           'recovery-verification',
-          state.world.service.recovered ? 100 : 0,
-          state.world.service.recovered ? '已验证服务恢复。' : '尚未验证服务恢复。',
+          score(
+            state.world.service.recovered &&
+              state.world.response.recoveryVerified &&
+              state.world.response.reconciliationCompleted,
+            state.world.service.recovered,
+          ),
+          state.world.response.recoveryVerified && state.world.response.reconciliationCompleted
+            ? '恢复指标已验证，重复扣费对账已完成。'
+            : '尚未完成可审计的恢复验证与后续处置。',
         ),
     },
   ],
@@ -444,9 +754,19 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       statePath: ['service', 'paymentSuccessRate'],
     },
     {
+      key: 'provider-status',
+      label: 'Provider status',
+      statePath: ['service', 'providerStatus'],
+    },
+    {
       key: 'affected-customers',
       label: 'Affected customers',
       statePath: ['impact', 'affectedCustomers'],
+    },
+    {
+      key: 'support-queue-depth',
+      label: 'Support queue depth',
+      statePath: ['impact', 'supportQueueDepth'],
     },
     { key: 'incident-severity', label: 'Incident severity', statePath: ['response', 'severity'] },
   ],
