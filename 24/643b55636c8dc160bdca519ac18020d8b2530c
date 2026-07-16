@@ -1,0 +1,55 @@
+.gitignore
+  s_b45c549f48cfe4::t_1ab576b2e14b3d 8
+apps/web/app/(app)/runs/[runId]/live-types.ts
+  s_b45c549f48cfe4::t_dcdca86a2dc837 1-42
+apps/web/app/(app)/runs/[runId]/live-workspace-client.test.tsx
+  s_b45c549f48cfe4::t_e41f6d1c66cb2b 1-133
+apps/web/app/(app)/runs/[runId]/live-workspace-client.tsx
+  s_b45c549f48cfe4::t_34a923324a0125 1-934
+apps/web/app/(app)/runs/[runId]/live-workspace.tsx
+  s_b45c549f48cfe4::t_de069001ef1c20 1-2,4,7-8,10-11
+apps/web/app/(app)/runs/[runId]/page.test.tsx
+  s_b45c549f48cfe4::t_57294b6650c4b4 9,19-24,50-67,76,93-97
+apps/web/app/(app)/runs/[runId]/page.tsx
+  s_b45c549f48cfe4::t_dd0512e75a7731 10-17,43,55,64,67-106,118,128-131
+apps/web/app/api/runs/[runId]/inject/route.test.ts
+  s_b45c549f48cfe4::t_77becb076ee999 1-92
+apps/web/app/api/runs/[runId]/inject/route.ts
+  s_b45c549f48cfe4::t_094a16e8427c93 1-56
+apps/web/app/globals.css
+  s_b45c549f48cfe4::t_4e533526ff684f 1074-1089,1224-1322,1325,1351-1487,1571-1574,1666-1677
+apps/web/lib/live-runtime-actors.ts
+  s_b45c549f48cfe4::t_8a2ed78afe2f41 1-122
+apps/web/lib/run-event-store.test.ts
+  s_b45c549f48cfe4::t_eeacd4040b8197 1-52
+apps/web/lib/run-event-store.ts
+  s_b45c549f48cfe4::t_dff7d9615fb482 1-93
+apps/web/package.json
+  s_b45c549f48cfe4::t_e334bdab8074d9 33
+apps/web/vitest.config.ts
+  s_b45c549f48cfe4::t_d69d3c22483b52 21-22
+packages/application/src/runtime.ts
+  s_b45c549f48cfe4::t_c9418e33543787 1191-1198
+pnpm-lock.yaml
+  s_b45c549f48cfe4::t_46ae1ad25abed5 103-105,8413-8418,14014-14015
+tasks.md
+  s_b45c549f48cfe4::t_6bc54d9d9fb6d2 220-228,232,236,240,244-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "24643b55636c8dc160bdca519ac18020d8b2530c",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
