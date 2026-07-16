@@ -1,0 +1,23 @@
+apps/web/lib/eve-agent-runtime.test.ts
+  s_b45c549f48cfe4::t_53ee232bf7413d 47-220,415,427-429
+apps/web/lib/eve-agent-runtime.ts
+  s_b45c549f48cfe4::t_a503064f9862a0 36-49,86,90-93,97-103,121-134,248,258,272,308,330,344,404-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cd175044ca8ec432d666959eaab87a38e4b8df57",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
