@@ -10,6 +10,7 @@ import {
 import { requireRunSession, userActor } from '@/lib/run-api';
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
 import { ApplicationError } from '@readinessos/domain-events';
+import { assertRunIsActiveForSession } from '@/lib/release-policy';
 
 const pauseSchema = z.object({ reason: z.string().min(1).max(1_000).optional() });
 type RunRouteContext = { params: Promise<{ runId: string }> };
@@ -19,12 +20,13 @@ export async function POST(request: Request, context: RunRouteContext) {
     const { runId } = await context.params;
     const record = await prisma.simulationRun.findUnique({
       where: { id: runId },
-      select: { organizationId: true },
+      select: { organizationId: true, expiresAt: true },
     });
     if (!record) {
       throw new ApplicationError('NOT_FOUND', 'Run not found');
     }
     const session = await requireRunSession(record.organizationId, 'member');
+    assertRunIsActiveForSession(session, record);
     const body = pauseSchema.parse(await request.json().catch(() => ({})));
     const execution = await runService.execute({
       commandId: randomUUID(),

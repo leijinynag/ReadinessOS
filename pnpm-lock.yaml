@@ -46,6 +46,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@opentelemetry/api':
+        specifier: 1.9.1
+        version: 1.9.1
       '@readinessos/application':
         specifier: workspace:*
         version: link:../../packages/application

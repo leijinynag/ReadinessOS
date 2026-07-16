@@ -1,5 +1,6 @@
 import type { RunScheduler } from '@readinessos/application';
 import { sleep } from 'workflow';
+import { withSpan } from '@/lib/observability';
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
 
 export type RunTickWorkflowInput = Parameters<RunScheduler['start']>[0];
@@ -56,13 +57,21 @@ export async function runTickWorkflow(input: RunTickWorkflowInput): Promise<void
 async function renewRunScheduleStep(input: LeaseInput): Promise<boolean> {
   'use step';
 
-  return runService.renewRunSchedule(input);
+  return withSpan(
+    'readinessos.workflow.renew_run_schedule',
+    { 'run.id': input.runId, 'workflow.generation': input.generation },
+    () => runService.renewRunSchedule(input),
+  );
 }
 
 async function releaseRunScheduleStep(input: LeaseInput): Promise<void> {
   'use step';
 
-  await runService.releaseRunSchedule(input);
+  await withSpan(
+    'readinessos.workflow.release_run_schedule',
+    { 'run.id': input.runId, 'workflow.generation': input.generation },
+    () => runService.releaseRunSchedule(input),
+  );
 }
 
 async function executeRunTickStep(input: RunTickStepInput): Promise<boolean> {
@@ -72,15 +81,24 @@ async function executeRunTickStep(input: RunTickStepInput): Promise<boolean> {
   if (!(await runService.renewRunSchedule(input))) {
     return false;
   }
-  const execution = await runService.executeScheduledTick({
-    runId: input.runId,
-    organizationId: input.organizationId,
-    generation: input.generation,
-    tickIndex: input.tickIndex,
-    holderId: input.holderId,
-    minutes: 1,
-    issuedAt: new Date().toISOString(),
-  });
+  const execution = await withSpan(
+    'readinessos.workflow.run_tick',
+    {
+      'run.id': input.runId,
+      'workflow.generation': input.generation,
+      'workflow.tick_index': input.tickIndex,
+    },
+    () =>
+      runService.executeScheduledTick({
+        runId: input.runId,
+        organizationId: input.organizationId,
+        generation: input.generation,
+        tickIndex: input.tickIndex,
+        holderId: input.holderId,
+        minutes: 1,
+        issuedAt: new Date().toISOString(),
+      }),
+  );
   if (!execution || execution.result.status === 'duplicate') {
     return false;
   }

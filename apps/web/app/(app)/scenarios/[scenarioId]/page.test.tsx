@@ -14,7 +14,11 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('@/lib/auth-session', () => ({ getAuthSession: mocks.getAuthSession }));
+vi.mock('@/lib/auth-session', () => ({
+  getAuthSession: mocks.getAuthSession,
+  getPrimaryOrganizationId: (session: { memberships: { organizationId: string }[] }) =>
+    session.memberships[0]?.organizationId,
+}));
 vi.mock('@/lib/scenario-query', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/scenario-query')>();
   return { ...actual, getPublishedScenarioDetail: mocks.getScenario };
@@ -77,23 +81,18 @@ describe('ScenarioDetailPage', () => {
     expect(mocks.getScenario).not.toHaveBeenCalled();
   });
 
-  it('无组织权限时拒绝访问且不读取场景', async () => {
+  it('使用登录会话的当前组织查询场景', async () => {
     mocks.getAuthSession.mockResolvedValue({
       userId: 'user-1',
       email: 'outsider@example.com',
       memberships: [{ organizationId: 'other-organization', role: 'owner' }],
     });
 
-    await expect(renderPage()).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(mocks.getScenario).not.toHaveBeenCalled();
-  });
-
-  it('演示组织不存在时返回 not found', async () => {
-    mocks.findOrganization.mockResolvedValue(null);
-
-    await expect(renderPage()).rejects.toThrow('NEXT_NOT_FOUND');
-    expect(mocks.notFound).toHaveBeenCalledOnce();
-    expect(mocks.getScenario).not.toHaveBeenCalled();
+    await renderPage();
+    expect(mocks.getScenario).toHaveBeenCalledWith({
+      scenarioId,
+      organizationId: 'other-organization',
+    });
   });
 
   it.each(['场景不存在', '场景未发布或没有已发布版本'])('%s 时返回 not found', async () => {

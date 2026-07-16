@@ -23,6 +23,7 @@ import {
   type SessionState,
 } from 'eve/client';
 import { createHash } from 'node:crypto';
+import { withSpan } from './observability';
 
 export interface EveSessionLike {
   readonly state: SessionState;
@@ -44,8 +45,13 @@ interface AgentUsage {
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
+  readonly toolSteps?: number;
+  readonly subagentSteps?: number;
   readonly completedSteps: number;
 }
+
+type ReportedAgentUsageMetric =
+  'costUsd' | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens';
 
 export class PrismaAgentRuntimeStore {
   constructor(private readonly client: PrismaClient) {}
@@ -237,6 +243,21 @@ export class EveAgentRuntime implements AgentRuntime {
     validationContext: ProposedActionValidationContext,
     input: SendTurnInput<ProposedAction>,
   ): Promise<AgentTurnResult> {
+    return withSpan(
+      'readinessos.agent.turn',
+      {
+        'agent.key': handle.agentKey,
+        'run_participant.id': handle.runParticipantId,
+      },
+      () => this.sendWithTrace(handle, validationContext, input),
+    );
+  }
+
+  private async sendWithTrace(
+    handle: AgentHandle,
+    validationContext: ProposedActionValidationContext,
+    input: SendTurnInput<ProposedAction>,
+  ): Promise<AgentTurnResult> {
     const session = this.sessions.session({
       streamIndex: handle.streamIndex,
       ...(handle.sessionId === undefined ? {} : { sessionId: handle.sessionId }),
@@ -419,6 +440,8 @@ function collectAgentUsage(events: readonly { type: string; data?: unknown }[]):
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    toolSteps: 0,
+    subagentSteps: 0,
     completedSteps: 0,
   };
   const reported = {
@@ -430,6 +453,8 @@ function collectAgentUsage(events: readonly { type: string; data?: unknown }[]):
   };
 
   for (const event of events) {
+    if (event.type.startsWith('tool.')) totals.toolSteps += 1;
+    if (event.type.startsWith('subagent.')) totals.subagentSteps += 1;
     if (event.type !== 'step.completed') continue;
     totals.completedSteps += 1;
     const usage = objectValue(objectValue(event.data).usage);
@@ -442,6 +467,8 @@ function collectAgentUsage(events: readonly { type: string; data?: unknown }[]):
 
   return {
     completedSteps: totals.completedSteps,
+    toolSteps: totals.toolSteps,
+    subagentSteps: totals.subagentSteps,
     ...(reported.costUsd ? { costUsd: totals.costUsd } : {}),
     ...(reported.inputTokens ? { inputTokens: totals.inputTokens } : {}),
     ...(reported.outputTokens ? { outputTokens: totals.outputTokens } : {}),
@@ -452,8 +479,8 @@ function collectAgentUsage(events: readonly { type: string; data?: unknown }[]):
 
 function addUsageMetric(
   totals: Record<keyof Omit<AgentUsage, 'completedSteps'> | 'completedSteps', number>,
-  reported: Record<keyof Omit<AgentUsage, 'completedSteps'>, boolean>,
-  key: keyof Omit<AgentUsage, 'completedSteps'>,
+  reported: Record<ReportedAgentUsageMetric, boolean>,
+  key: ReportedAgentUsageMetric,
   value: unknown,
 ): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return;
@@ -513,6 +540,14 @@ function createUsageLedgerEntries(input: {
     input.telemetry.usage.cacheWriteTokens,
     'token',
   );
+  addLedgerEntry(entries, common, 'agent_tool_steps', input.telemetry.usage.toolSteps, 'step');
+  addLedgerEntry(
+    entries,
+    common,
+    'agent_subagent_steps',
+    input.telemetry.usage.subagentSteps,
+    'step',
+  );
   if (input.telemetry.usage.costUsd !== undefined) {
     addLedgerEntry(
       entries,
@@ -532,7 +567,7 @@ function addLedgerEntry(
   quantity: number | undefined,
   unit: string,
 ): void {
-  if (quantity === undefined) return;
+  if (quantity === undefined || quantity <= 0) return;
   entries.push({ ...common, category, quantity: toLedgerQuantity(quantity), unit });
 }
 

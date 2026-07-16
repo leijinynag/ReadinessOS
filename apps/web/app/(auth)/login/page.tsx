@@ -1,7 +1,7 @@
 import { ShieldCheck } from 'lucide-react';
 import { auth } from '@/auth';
 import { env } from '@/lib/env';
-import { loginAction } from './actions';
+import { guestDemoAction, loginAction } from './actions';
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -54,6 +54,13 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             进入工作区
           </button>
         </form>
+        {env.GUEST_DEMO_ENABLED === 'true' ? (
+          <form action={guestDemoAction}>
+            <button className="button button-secondary" type="submit">
+              创建受限访客演示
+            </button>
+          </form>
+        ) : null}
       </section>
     </main>
   );

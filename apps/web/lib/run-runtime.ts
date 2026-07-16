@@ -7,6 +7,7 @@ import {
 } from '@readinessos/application';
 import { prisma } from '@readinessos/database';
 import { scenarioPackRegistry } from '@/lib/scenario-pack-registry';
+import { withSpan } from './observability';
 
 /**
  * Runtime 组合根只存在于 Web 层：Application 保持对 Next、Workflow、Eve
@@ -33,13 +34,15 @@ export function configureRuntimeOutboxHandlers(
  * 接管，因此进程重启不会损失事件。
  */
 export async function drainRuntimeOutbox(): Promise<void> {
-  const activePublisher =
-    publisher ?? new RuntimeOutboxPublisher(repository, hub, configuredOutboxHandlers);
+  return withSpan('readinessos.outbox.drain', { 'outbox.max_batches': 10 }, async () => {
+    const activePublisher =
+      publisher ?? new RuntimeOutboxPublisher(repository, hub, configuredOutboxHandlers);
 
-  for (let batch = 0; batch < 10; batch += 1) {
-    const count = await activePublisher.publishPending(100);
-    if (count === 0) {
-      return;
+    for (let batch = 0; batch < 10; batch += 1) {
+      const count = await activePublisher.publishPending(100);
+      if (count === 0) {
+        return;
+      }
     }
-  }
+  });
 }

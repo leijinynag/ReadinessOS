@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-response';
 import { requireRunSession, userActor } from '@/lib/run-api';
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { assertGuestFeature, assertRunIsActiveForSession } from '@/lib/release-policy';
 
 const injectSchema = z.object({
   injectKey: z.string().min(1).max(128),
@@ -26,13 +27,15 @@ export async function POST(request: Request, context: RunRouteContext) {
     const input = injectSchema.parse(await request.json());
     const record = await prisma.simulationRun.findUnique({
       where: { id: runId },
-      select: { organizationId: true },
+      select: { organizationId: true, expiresAt: true },
     });
     if (!record) {
       throw new ApplicationError('NOT_FOUND', 'Run not found');
     }
 
     const session = await requireRunSession(record.organizationId, 'member');
+    assertRunIsActiveForSession(session, record);
+    assertGuestFeature(session, 'director-inject');
     const pack = await runService.getRunScenarioPack(runId, record.organizationId);
     if (!pack.injects.some((inject) => inject.key === input.injectKey)) {
       throw new ApplicationError('ACTION_NOT_ALLOWED', 'The inject is unavailable for this Run.');

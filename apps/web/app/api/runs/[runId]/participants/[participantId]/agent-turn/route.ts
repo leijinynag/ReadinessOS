@@ -4,6 +4,7 @@ import { ApplicationError } from '@readinessos/domain-events';
 import { apiError } from '@/lib/api-response';
 import type { AgentTurnService } from '@/lib/agent-turn-service';
 import { getProductionAgentTurnService } from '@/lib/agent-turn-runtime';
+import { assertGuestFeature, assertRunIsActiveForSession } from '@/lib/release-policy';
 import { requireRunSession } from '@/lib/run-api';
 
 const inputResponseSchema = z
@@ -28,10 +29,12 @@ export function createPostHandler(getTurnService: () => Pick<AgentTurnService, '
       const { runId, participantId } = await context.params;
       const run = await prisma.simulationRun.findUnique({
         where: { id: runId },
-        select: { organizationId: true, status: true },
+        select: { organizationId: true, status: true, expiresAt: true },
       });
       if (!run) throw new ApplicationError('NOT_FOUND', 'Run not found.');
-      await requireRunSession(run.organizationId, 'member');
+      const session = await requireRunSession(run.organizationId, 'member');
+      assertRunIsActiveForSession(session, run);
+      assertGuestFeature(session, 'agent-turn');
       if (run.status !== 'running') {
         throw new ApplicationError('VALIDATION_ERROR', 'Agent turns require a running Run.');
       }

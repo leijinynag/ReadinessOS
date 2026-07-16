@@ -39,6 +39,7 @@ type CreateStudioRunInput = {
   idempotencyKey: string;
   draft: StudioRunDraft;
   simulatedAt: string;
+  expiresAt?: string;
 };
 
 type StudioRunResult = {
@@ -69,6 +70,7 @@ export class StudioRunService {
       idempotencyKey: runIdempotencyKey,
       seed: draft.seed,
       simulatedAt: input.simulatedAt,
+      ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
     });
 
     await this.startRun(input, run, runIdempotencyKey);

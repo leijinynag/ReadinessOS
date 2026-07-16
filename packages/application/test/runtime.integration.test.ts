@@ -607,7 +607,12 @@ describe('PrismaRunRepository', () => {
     const run = await createRun(service, fixture, 'scheduler-reconcile-create');
     await service.execute(startCommand(fixture, run.id, 0, 'scheduler-reconcile-start'));
 
-    await expect(service.reconcileRunningRuns(firstScheduler)).resolves.toBe(1);
+    await service.reconcileRunningRuns(firstScheduler);
+    // 对账任务会扫描全局运行中的 Run；测试只校验当前夹具的租约和调度结果，
+    // 避免本地开发库中的其他 Run 或并行包测试影响全局启动数量。
+    expect(firstScheduler.started).toEqual(
+      expect.arrayContaining([expect.objectContaining({ runId: run.id, generation: 1 })]),
+    );
     const firstTick = firstScheduler.takeNextTick(run.id);
     expect(firstTick).toMatchObject({ generation: 1, tickIndex: 1 });
     await expect(
@@ -619,8 +624,10 @@ describe('PrismaRunRepository', () => {
     ).resolves.toMatchObject({ result: { status: 'accepted' } });
 
     const duplicateScheduler = new ManualRunScheduler();
-    await expect(service.reconcileRunningRuns(duplicateScheduler)).resolves.toBe(0);
-    expect(duplicateScheduler.started).toEqual([]);
+    await service.reconcileRunningRuns(duplicateScheduler);
+    expect(duplicateScheduler.started).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ runId: run.id })]),
+    );
 
     await prisma.runScheduleLease.update({
       where: { runId: run.id },
@@ -630,10 +637,12 @@ describe('PrismaRunRepository', () => {
       },
     });
     const recoveredScheduler = new ManualRunScheduler();
-    await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(1);
-    expect(recoveredScheduler.started).toEqual([
-      expect.objectContaining({ generation: 1, firstTickIndex: 2 }),
-    ]);
+    await service.reconcileRunningRuns(recoveredScheduler);
+    expect(recoveredScheduler.started).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ runId: run.id, generation: 1, firstTickIndex: 2 }),
+      ]),
+    );
     expect(recoveredScheduler.takeNextTick(run.id)).toMatchObject({
       generation: 1,
       tickIndex: 2,
@@ -647,7 +656,10 @@ describe('PrismaRunRepository', () => {
     await expect(service.getLatestRunningRuns()).resolves.not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: run.id })]),
     );
-    await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(0);
+    await service.reconcileRunningRuns(recoveredScheduler);
+    expect(recoveredScheduler.started).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ runId: run.id, generation: 2 })]),
+    );
   });
 
   it('并发 claim 只有一个 winner，takeover 后旧 holder 无法续租、tick 或 release', async () => {

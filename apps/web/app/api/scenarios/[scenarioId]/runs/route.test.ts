@@ -8,13 +8,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@readinessos/database', () => ({ prisma: { organization: { findUnique: vi.fn() } } }));
-vi.mock('@/lib/auth-session', () => ({ getAuthSession: vi.fn() }));
+vi.mock('@/lib/auth-session', () => ({
+  getAuthSession: vi.fn(),
+  getPrimaryOrganizationId: (session: { memberships: { organizationId: string }[] }) =>
+    session.memberships[0]?.organizationId,
+}));
 vi.mock('@/lib/run-runtime', () => ({ drainRuntimeOutbox: vi.fn(), runService: {} }));
 
 const { createPostHandler } = await import('./route');
 const POST = createPostHandler({
   getSession: mocks.getSession,
-  findDemoOrganization: mocks.findOrganization,
   createAndStart: mocks.createAndStart,
   drainOutbox: mocks.drainOutbox,
 });
@@ -29,9 +32,10 @@ beforeEach(() => {
   mocks.getSession.mockResolvedValue({
     userId,
     email: 'operator@example.com',
+    isGuest: false,
+    guestExpiresAt: undefined,
     memberships: [{ organizationId, role: 'member' }],
   });
-  mocks.findOrganization.mockResolvedValue({ id: organizationId });
   mocks.createAndStart.mockResolvedValue({
     run: { id: '018f4c8b-9ae2-7a72-86bd-4f867befef05', version: 1 },
     scenarioVersionId: '018f4c8b-9ae2-7a72-86bd-4f867befef06',
@@ -85,22 +89,30 @@ describe('Studio create run route', () => {
     expect(mocks.createAndStart).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['UNAUTHENTICATED', 401],
-    ['FORBIDDEN', 403],
-  ] as const)('授权错误 %s 返回 %s', async (code, status) => {
-    mocks.getSession.mockResolvedValue(
-      code === 'UNAUTHENTICATED'
-        ? null
-        : {
-            userId,
-            email: 'outsider@example.com',
-            memberships: [{ organizationId: 'other-organization', role: 'member' }],
-          },
-    );
+  it('未登录时拒绝创建 Run', async () => {
+    mocks.getSession.mockResolvedValue(null);
     const response = await call(validPayload());
-    expect(response.status).toBe(status);
+    expect(response.status).toBe(401);
     expect(mocks.createAndStart).not.toHaveBeenCalled();
+  });
+
+  it('为访客 Studio Run 写入时效', async () => {
+    mocks.getSession.mockResolvedValue({
+      userId,
+      email: 'guest@readinessos.local',
+      isGuest: true,
+      guestExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      memberships: [{ organizationId, role: 'owner' }],
+    });
+
+    const response = await call(validPayload());
+
+    expect(response.status).toBe(201);
+    expect(mocks.createAndStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expiresAt: expect.any(String),
+      }),
+    );
   });
 });
 

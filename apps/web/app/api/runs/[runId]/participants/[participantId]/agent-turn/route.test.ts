@@ -20,8 +20,11 @@ const organizationId = '018f4c8b-9ae2-7a72-86bd-4f867befef03';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.findRun.mockResolvedValue({ organizationId, status: 'running' });
-  mocks.requireSession.mockResolvedValue({});
+  mocks.findRun.mockResolvedValue({ organizationId, status: 'running', expiresAt: null });
+  mocks.requireSession.mockResolvedValue({
+    isGuest: false,
+    guestExpiresAt: undefined,
+  });
   mocks.turn.mockResolvedValue({
     handle: {
       runParticipantId: participantId,
@@ -108,6 +111,35 @@ describe('participant agent turn route', () => {
     const response = await call({ type: 'observe' });
     expect(response.status).toBe(404);
     expect(mocks.requireSession).not.toHaveBeenCalled();
+    expect(mocks.turn).not.toHaveBeenCalled();
+  });
+
+  it('拒绝访客触发 Agent turn', async () => {
+    mocks.requireSession.mockResolvedValue({
+      isGuest: true,
+      guestExpiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const response = await call({ type: 'observe' });
+
+    expect(response.status).toBe(403);
+    expect(mocks.turn).not.toHaveBeenCalled();
+  });
+
+  it('拒绝已过期的访客 Run', async () => {
+    mocks.findRun.mockResolvedValue({
+      organizationId,
+      status: 'running',
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    mocks.requireSession.mockResolvedValue({
+      isGuest: true,
+      guestExpiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const response = await call({ type: 'observe' });
+
+    expect(response.status).toBe(400);
     expect(mocks.turn).not.toHaveBeenCalled();
   });
 });

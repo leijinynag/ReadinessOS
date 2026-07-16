@@ -9,6 +9,7 @@ import {
 } from '@/lib/api-response';
 import { requireRunSession } from '@/lib/run-api';
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { assertGuestFeature, assertRunIsActiveForSession } from '@/lib/release-policy';
 
 const branchSchema = z.object({
   sequence: z.number().int().positive(),
@@ -22,10 +23,12 @@ export async function POST(request: Request, context: RunRouteContext) {
     const input = branchSchema.parse(await request.json());
     const parent = await prisma.simulationRun.findUnique({
       where: { id: runId },
-      select: { organizationId: true },
+      select: { organizationId: true, expiresAt: true },
     });
     if (!parent) throw new ApplicationError('NOT_FOUND', 'Run not found');
     const session = await requireRunSession(parent.organizationId, 'member');
+    assertRunIsActiveForSession(session, parent);
+    assertGuestFeature(session, 'branch');
     const branch = await runService.createBranchRun({
       parentRunId: runId,
       organizationId: parent.organizationId,

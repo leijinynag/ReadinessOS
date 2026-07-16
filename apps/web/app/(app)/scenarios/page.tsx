@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import { ArrowRight, Clock3 } from 'lucide-react';
-import { OrganizationAuthorizationService } from '@readinessos/application';
 import { prisma } from '@readinessos/database';
 import { redirect } from 'next/navigation';
-import { getAuthSession } from '@/lib/auth-session';
+import { getAuthSession, getPrimaryOrganizationId } from '@/lib/auth-session';
 import { formatDuration } from '@/lib/format';
 
 type ScenarioConfig = {
@@ -11,30 +10,17 @@ type ScenarioConfig = {
 };
 
 export default async function ScenariosPage() {
-  const [session, organization] = await Promise.all([
-    getAuthSession(),
-    prisma.organization.findUnique({
-      where: {
-        slug: 'readiness-demo',
-      },
-    }),
-  ]);
-
-  if (!organization) {
-    return null;
-  }
-
   // RSC 的页面与 Layout 可并行执行，页面本身也应处理未认证请求，避免产生无意义的 500 日志。
+  const session = await getAuthSession();
   if (!session) {
     redirect('/login');
   }
-
-  new OrganizationAuthorizationService().requireOrganizationAccess(session, organization.id);
+  const organizationId = getPrimaryOrganizationId(session);
 
   const scenarios = await prisma.scenario.findMany({
     where: {
       status: 'published',
-      organizationId: organization.id,
+      organizationId,
     },
     include: {
       versions: {

@@ -13,6 +13,8 @@ vi.mock('@/lib/auth-session', () => ({
       },
     ],
   }),
+  getPrimaryOrganizationId: (session: { memberships: { organizationId: string }[] }) =>
+    session.memberships[0]?.organizationId,
 }));
 
 vi.mock('@readinessos/database', () => ({

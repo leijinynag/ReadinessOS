@@ -1,7 +1,8 @@
 'use client';
 
 import { CheckCircle2, ExternalLink, GitBranch, RotateCcw } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useMemo, useRef, useState } from 'react';
 import type { ReviewSummary } from '@readinessos/application';
 
 type ReviewWorkspaceProps = {
@@ -18,6 +19,7 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
   const [branchName, setBranchName] = useState('');
   const [branching, setBranching] = useState(false);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
   const latestScores = useMemo(() => {
     const deduped = new Map<string, (typeof review.evaluations)[number]>();
@@ -26,6 +28,12 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
     }
     return [...deduped.values()];
   }, [review]);
+  const timelineVirtualizer = useVirtualizer({
+    count: review.timeline.length,
+    getScrollElement: () => timelineRef.current,
+    estimateSize: () => 70,
+    overscan: 10,
+  });
 
   async function replayTo(sequence: number) {
     setSelectedSequence(sequence);
@@ -143,22 +151,33 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
             </div>
             <span>#{review.timeline.length} events</span>
           </div>
-          <ol>
-            {review.timeline.map((event) => (
-              <li
-                key={event.sequence}
-                className={selectedSequence === event.sequence ? 'is-selected' : ''}
-              >
-                <button type="button" onClick={() => void replayTo(event.sequence)}>
-                  <span>#{event.sequence}</span>
-                  <strong>{event.type}</strong>
-                  <small>
-                    {event.source} · T+{new Date(event.simulatedAt).toISOString()}
-                  </small>
-                </button>
-              </li>
-            ))}
-          </ol>
+          <div ref={timelineRef} className="review-timeline-scroll" aria-label="复盘事件时间线">
+            <ol
+              className="review-timeline-virtual"
+              style={{ height: `${timelineVirtualizer.getTotalSize()}px` }}
+            >
+              {timelineVirtualizer.getVirtualItems().map((virtualItem) => {
+                const event = review.timeline[virtualItem.index];
+                if (!event) return null;
+
+                return (
+                  <li
+                    key={event.sequence}
+                    className={selectedSequence === event.sequence ? 'is-selected' : ''}
+                    style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  >
+                    <button type="button" onClick={() => void replayTo(event.sequence)}>
+                      <span>#{event.sequence}</span>
+                      <strong>{event.type}</strong>
+                      <small>
+                        {event.source} · T+{new Date(event.simulatedAt).toISOString()}
+                      </small>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
         </section>
 
         <aside className="review-inspector">

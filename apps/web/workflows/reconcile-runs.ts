@@ -1,5 +1,6 @@
 import { runService } from '@/lib/run-runtime';
 import { workflowRunScheduler } from '@/lib/workflow-run-scheduler';
+import { withSpan } from '@/lib/observability';
 
 const reconciliationBatchSize = 50;
 
@@ -13,5 +14,9 @@ export async function reconcileRunsWorkflow(): Promise<number> {
 async function reconcileRunsStep(): Promise<number> {
   'use step';
 
-  return runService.reconcileRunningRuns(workflowRunScheduler, reconciliationBatchSize);
+  return withSpan(
+    'readinessos.workflow.reconcile_runs',
+    { 'workflow.batch_size': reconciliationBatchSize },
+    () => runService.reconcileRunningRuns(workflowRunScheduler, reconciliationBatchSize),
+  );
 }
