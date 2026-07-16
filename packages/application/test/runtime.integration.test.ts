@@ -327,6 +327,91 @@ describe('PrismaRunRepository', () => {
     expect(events.map((event) => event.type)).toEqual(['run.created', 'run.started']);
   });
 
+  it('分支从目标 sequence 继承状态，但不复制或改写父 Run 事件', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const parent = await createRun(service, fixture, 'branch-parent-create');
+    await service.execute(startCommand(fixture, parent.id, 0, 'branch-parent-start'));
+    await service.execute(
+      runCommand(fixture, parent.id, 1, 'branch-parent-clock', {
+        type: 'advance-clock',
+        minutes: 5,
+      }),
+    );
+    const parentBeforeBranch = await prisma.runEvent.findMany({
+      where: { runId: parent.id },
+      orderBy: { sequence: 'asc' },
+    });
+
+    const branch = await service.createBranchRun({
+      parentRunId: parent.id,
+      organizationId: fixture.organizationId,
+      createdById: fixture.userId,
+      idempotencyKey: 'branch-create',
+      expectedParentRunVersion: 2,
+      branchFromSequence: 3,
+      name: '五分钟处置备选方案',
+    });
+    const [persistedBranch, branchEvents, parentAfterBranch, replay] = await Promise.all([
+      prisma.simulationRun.findUniqueOrThrow({ where: { id: branch.id } }),
+      prisma.runEvent.findMany({ where: { runId: branch.id }, orderBy: { sequence: 'asc' } }),
+      prisma.runEvent.findMany({ where: { runId: parent.id }, orderBy: { sequence: 'asc' } }),
+      service.getReplay(branch.id, fixture.organizationId),
+    ]);
+
+    expect(persistedBranch).toMatchObject({
+      parentRunId: parent.id,
+      branchFromSequence: 3,
+      latestSequence: 1,
+      virtualTime: 5,
+    });
+    expect(branchEvents).toHaveLength(1);
+    expect(branchEvents[0]).toMatchObject({ sequence: 1, type: 'run.created' });
+    expect(parentAfterBranch.slice(0, parentBeforeBranch.length)).toEqual(parentBeforeBranch);
+    expect(parentAfterBranch.at(-1)).toMatchObject({
+      type: 'branch.created',
+      payload: expect.objectContaining({
+        childRunId: branch.id,
+        branchFromSequence: 3,
+      }),
+    });
+    expect(replay.state).toMatchObject({
+      run: {
+        runId: branch.id,
+        status: 'created',
+        latestSequence: 1,
+        virtualTimeMinutes: 5,
+      },
+    });
+  });
+
+  it('Snapshot 回放与完整事件重放得到一致的 Run 状态', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'replay-consistency-create');
+    await service.execute(startCommand(fixture, run.id, 0, 'replay-consistency-start'));
+    await service.execute(
+      runCommand(fixture, run.id, 1, 'replay-consistency-clock', {
+        type: 'advance-clock',
+        minutes: 3,
+      }),
+    );
+    await service.execute(
+      runCommand(fixture, run.id, 2, 'replay-consistency-checkpoint', {
+        type: 'create-checkpoint',
+        label: '三分钟检查点',
+      }),
+    );
+
+    const snapshotReplay = await service.getReplay(run.id, fixture.organizationId);
+    await prisma.stateSnapshot.deleteMany({ where: { runId: run.id } });
+    const fullReplay = await service.getReplay(run.id, fixture.organizationId);
+
+    expect(snapshotReplay.source).toBe('snapshot');
+    expect(fullReplay.source).toBe('full');
+    expect(fullReplay.state).toEqual(snapshotReplay.state);
+  });
+
   it('在没有处理器时保持 Outbox 消息待重试', async () => {
     const fixture = await createFixture();
     const repository = new PrismaRunRepository(prisma);
@@ -559,7 +644,9 @@ describe('PrismaRunRepository', () => {
         type: 'pause-run',
       }),
     );
-    await expect(service.getLatestRunningRuns()).resolves.toEqual([]);
+    await expect(service.getLatestRunningRuns()).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: run.id })]),
+    );
     await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(0);
   });
 

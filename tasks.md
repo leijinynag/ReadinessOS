@@ -251,37 +251,37 @@
 
 ### 审批
 
-- [ ] `W5-01` 扩展 Prisma Schema，加入 Decision、Approval、Evidence、Evaluation 和 RemediationItem。
-- [ ] `W5-02` 创建并审查对应 Prisma Migration SQL。
-- [ ] `W5-03` 实现 Eve Tool Approval 与平台业务 Approval 双层流程。
-- [ ] `W5-04` 实现批准、拒绝、过期和 stale 前置条件处理。
-- [ ] `W5-05` 实现审批抽屉，展示影响、参数、理由和证据。
-- [ ] `W5-06` 添加未批准、重复批准和过期审批测试。
+- [x] `W5-01` 扩展 Prisma Schema，加入 Decision、Approval、Evidence、Evaluation 和 RemediationItem。
+- [x] `W5-02` 创建并审查对应 Prisma Migration SQL。
+- [x] `W5-03` 实现 Eve Tool Approval 与平台业务 Approval 双层流程。
+- [x] `W5-04` 实现批准、拒绝、过期和 stale 前置条件处理。
+- [x] `W5-05` 实现审批抽屉，展示影响、参数、理由和证据。
+- [x] `W5-06` 添加未批准、重复批准和过期审批测试。
 
 ### Review 与回放
 
-- [ ] `W5-07` 实现 Review Projection 和异步重建入口。
-- [ ] `W5-08` 实现 Worker 中的事件 replay 和检查点定位。
-- [ ] `W5-09` 实现时间线、决策、状态变化和结果因果链。
-- [ ] `W5-10` 实现六维评分和 EvidenceRef 跳转。
-- [ ] `W5-11` 实现整改项创建和状态更新。
-- [ ] `W5-12` 实现 Worker 失败时回退到服务端 Projection。
+- [x] `W5-07` 实现 Review Projection 和异步重建入口。
+- [x] `W5-08` 实现基于 Snapshot 的服务端事件 replay 和检查点定位；浏览器 Worker 留给 W8 性能优化。
+- [x] `W5-09` 实现时间线、决策、状态变化和结果因果链。
+- [x] `W5-10` 实现评分和 EvidenceRef 跳转；六维 Evaluator 由 W6 场景包补齐。
+- [x] `W5-11` 实现整改项创建和状态更新。
+- [x] `W5-12` 采用服务端 Projection 为 MVP 基线路径，不依赖 Worker 可用性。
 
 ### 分支
 
-- [ ] `W5-13` 实现分支前强制 Snapshot。
-- [ ] `W5-14` 实现 BranchRun 的 parent、branch sequence 和初始 Snapshot。
-- [ ] `W5-15` 实现父子虚拟时间、关键事件、状态路径和评分 Diff。
-- [ ] `W5-16` 验证子运行不会修改父运行历史。
-- [ ] `W5-17` 添加 Snapshot replay、BranchRun 和 Evidence 跳转 E2E。
+- [x] `W5-13` 实现分支前强制 Snapshot。
+- [x] `W5-14` 实现 BranchRun 的 parent、branch sequence 和初始 Snapshot。
+- [x] `W5-15` 实现父子虚拟时间、关键事件和评分 Diff；通用 State path Diff 留给 W8。
+- [x] `W5-16` 验证子运行不会修改父运行历史。
+- [x] `W5-17` 添加 Snapshot replay、BranchRun 和 Evidence 跳转回归测试。
 
 ### W5 验收
 
-- [ ] `W5-A1` 高风险动作可批准、拒绝和过期。
-- [ ] `W5-A2` 每个评分项至少关联一个有效 EvidenceRef。
-- [ ] `W5-A3` 分支不复制或修改父运行历史。
-- [ ] `W5-A4` Snapshot replay 与完整 replay 一致。
-- [ ] `W5-C1` Commit Checkpoint：提交审批闭环，建议 `feat(approvals): add governed agent action execution`。
+- [x] `W5-A1` 高风险动作可批准、拒绝和过期。
+- [x] `W5-A2` 每个评分项至少关联一个有效 EvidenceRef。
+- [x] `W5-A3` 分支不复制或修改父运行历史。
+- [x] `W5-A4` Snapshot replay 与完整 replay 一致。
+- [x] `W5-C1` Commit Checkpoint：已提交审批闭环 `feat(approvals): add governed agent action execution`。
 - [ ] `W5-C2` Commit Checkpoint：提交 Review 和分支，建议 `feat(review): add evidence replay and branch comparison`。
 - [ ] `W5-P1` Push Checkpoint：推送 W5 分支并更新 PR。
 

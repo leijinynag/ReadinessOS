@@ -116,6 +116,81 @@ export type ApprovalSummary = {
   }[];
 };
 
+export type ReviewSummary = {
+  run: RunSummary;
+  timeline: readonly {
+    sequence: number;
+    type: string;
+    source: EventSource;
+    simulatedAt: string;
+    payload: Record<string, unknown>;
+  }[];
+  approvals: readonly ApprovalSummary[];
+  decisions: readonly {
+    id: string;
+    sequence: number;
+    decision: string;
+    approvalId: string | undefined;
+    actorName: string | undefined;
+    createdAt: string;
+  }[];
+  evaluations: readonly {
+    id: string;
+    evaluatorKey: string;
+    sequence: number;
+    score: number;
+    summary: string;
+    evidence: readonly {
+      id: string;
+      sequence: number;
+      eventType: string;
+      label: string;
+    }[];
+  }[];
+  remediationItems: readonly {
+    id: string;
+    evaluationId: string | undefined;
+    title: string;
+    description: string;
+    status: 'open' | 'in_progress' | 'resolved';
+    dueAt: string | undefined;
+    updatedAt: string;
+  }[];
+  checkpoints: readonly { sequence: number; label: string; createdAt: string }[];
+  branch: {
+    parentRunId: string | undefined;
+    branchFromSequence: number | undefined;
+    childRunIds: readonly string[];
+    comparison:
+      | {
+          parentRunId: string;
+          branchRunId: string;
+          branchFromSequence: number;
+          virtualTime: { parent: number; branch: number; delta: number };
+          eventCounts: { parentAfterBranch: number; branch: number };
+          significantEvents: readonly {
+            type: string;
+            parentCount: number;
+            branchCount: number;
+          }[];
+          evaluationChanges: readonly {
+            evaluatorKey: string;
+            parentScore: number | undefined;
+            branchScore: number | undefined;
+            delta: number | undefined;
+          }[];
+          status: { parent: RunStatus; branch: RunStatus };
+        }
+      | undefined;
+  };
+};
+
+export type ReplaySummary = {
+  sequence: number;
+  source: 'snapshot' | 'full';
+  state: Record<string, unknown>;
+};
+
 export type CreateRunRequest = {
   organizationId: string;
   scenarioVersionId: string;
@@ -124,6 +199,16 @@ export type CreateRunRequest = {
   seed: number;
   simulatedAt: string;
   tickIntervalSeconds?: number;
+};
+
+export type CreateBranchRequest = {
+  parentRunId: string;
+  organizationId: string;
+  createdById: string;
+  idempotencyKey: string;
+  expectedParentRunVersion: number;
+  branchFromSequence: number;
+  name: string;
 };
 
 export type CommandExecution<TState = unknown> = {
@@ -460,6 +545,189 @@ export class PrismaRunRepository {
     }
   }
 
+  async createBranchRun<TState>(
+    request: CreateBranchRequest,
+    pack: ScenarioPack<TState>,
+  ): Promise<RunSummary> {
+    const childRunId = randomUUID();
+    const recordedAt = new Date().toISOString();
+    const kernel = new SimulationKernel(pack);
+
+    try {
+      return await this.client.$transaction(async (tx) => {
+        await lockRun(tx, request.parentRunId, request.organizationId);
+        const parent = await this.requireRun(tx, request.parentRunId, request.organizationId);
+        if (parent.version !== request.expectedParentRunVersion) {
+          throw new ApplicationError(
+            'RUN_VERSION_CONFLICT',
+            'The parent run changed before the branch could be created.',
+          );
+        }
+        if (
+          !Number.isInteger(request.branchFromSequence) ||
+          request.branchFromSequence < 1 ||
+          request.branchFromSequence > parent.latestSequence
+        ) {
+          throw new ApplicationError(
+            'VALIDATION_ERROR',
+            'Branch sequence must point to a persisted parent event.',
+          );
+        }
+
+        const existingBranch = await tx.simulationRun.findFirst({
+          where: {
+            organizationId: request.organizationId,
+            createdById: request.createdById,
+            createIdempotencyKey: request.idempotencyKey,
+          },
+          select: { id: true },
+        });
+        if (existingBranch) {
+          return toRunSummary(await this.requireRun(tx, existingBranch.id, request.organizationId));
+        }
+
+        const config = jsonRecord(parent.scenarioVersion.config);
+        const parentState = await this.loadStateAtSequence(
+          tx,
+          parent,
+          kernel,
+          config,
+          request.branchFromSequence,
+        );
+        await this.writeStateSnapshot(tx, parent.id, request.branchFromSequence, parentState);
+        const child = await tx.simulationRun.create({
+          data: {
+            id: childRunId,
+            organizationId: request.organizationId,
+            scenarioVersionId: parent.scenarioVersionId,
+            parentRunId: parent.id,
+            branchFromSequence: request.branchFromSequence,
+            createdById: request.createdById,
+            createIdempotencyKey: request.idempotencyKey,
+            seed: parent.seed,
+            tickIntervalSeconds: parent.tickIntervalSeconds,
+          },
+        });
+        const input: CreateRunInput = {
+          organizationId: request.organizationId,
+          runId: childRunId,
+          seed: parent.seed,
+          config,
+          simulatedAt: parentState.run.simulatedAt,
+        };
+        const childResult = kernel.createBranchRun(input, parentState, createKernelContext(recordedAt));
+        await tx.runParticipant.createMany({
+          data: pack.participants.map((participant) => ({
+            runId: childRunId,
+            key: participant.key,
+            displayName: participant.displayName,
+            controller: participant.controller,
+            capabilities: toInputJson(participant.capabilities),
+            permissions: toInputJson(participant.permissions),
+            objectives: toInputJson(participant.objectives),
+            knowledgeScopes: toInputJson(participant.knowledgeScopes),
+          })),
+        });
+        const participants = await tx.runParticipant.findMany({
+          where: { runId: childRunId },
+          select: { id: true, key: true },
+        });
+        await tx.participantProjection.createMany({
+          data: participants.map((participant) => {
+            const runtimeParticipant = Object.values(childResult.state.participants).find(
+              (candidate) => candidate.key === participant.key,
+            );
+            return {
+              runParticipantId: participant.id,
+              runId: childRunId,
+              status: runtimeParticipant?.status ?? 'inactive',
+              data: toInputJson(runtimeParticipant ?? {}),
+            };
+          }),
+        });
+        const persistedChild = await tx.simulationRun.update({
+          where: { id: child.id },
+          data: {
+            latestSequence: childResult.state.run.latestSequence,
+            virtualTime: childResult.state.run.virtualTimeMinutes,
+          },
+        });
+        await this.writeEventsAndProjections(tx, persistedChild, childResult, {
+          forceSnapshot: true,
+          scheduler: undefined,
+        });
+
+        // 分支前写入父状态 Snapshot，确保审计事件与分支基线位于同一事务。
+        const parentBranchResult = kernel.execute(
+          await this.loadState(tx, parent, kernel, config),
+          {
+            commandId: randomUUID(),
+            organizationId: request.organizationId,
+            runId: parent.id,
+            actor: {
+              id: request.createdById,
+              type: 'user',
+              organizationId: request.organizationId,
+            },
+            expectedRunVersion: parent.version,
+            idempotencyKey: `branch:${childRunId}`,
+            issuedAt: recordedAt,
+            payload: {
+              type: 'create-branch',
+              name: request.name,
+              childRunId,
+              branchFromSequence: request.branchFromSequence,
+            },
+          },
+          createKernelContext(recordedAt),
+        );
+        if (parentBranchResult.status !== 'accepted') {
+          throw new ApplicationError('INTERNAL_ERROR', 'The parent branch audit event was rejected.');
+        }
+        const parentUpdate = await tx.simulationRun.updateMany({
+          where: { id: parent.id, version: parent.version },
+          data: createRunUpdateData(parent, parentBranchResult, undefined, undefined),
+        });
+        if (parentUpdate.count !== 1) {
+          throw new ApplicationError(
+            'RUN_VERSION_CONFLICT',
+            'The parent run changed before the branch could be recorded.',
+          );
+        }
+        await this.writeEventsAndProjections(
+          tx,
+          {
+            ...parent,
+            status: parentBranchResult.state.run.status,
+            version: parentBranchResult.state.run.version,
+            latestSequence: parentBranchResult.state.run.latestSequence,
+            virtualTime: parentBranchResult.state.run.virtualTimeMinutes,
+          },
+          parentBranchResult,
+          { forceSnapshot: true, scheduler: undefined },
+        );
+
+        return toRunSummary(await this.requireRun(tx, childRunId, request.organizationId));
+      });
+    } catch (error) {
+      if (!isCreateIdempotencyConflict(error)) {
+        throw error;
+      }
+      const existingBranch = await this.client.simulationRun.findFirst({
+        where: {
+          organizationId: request.organizationId,
+          createdById: request.createdById,
+          createIdempotencyKey: request.idempotencyKey,
+        },
+        select: { id: true },
+      });
+      if (!existingBranch) throw error;
+      return toRunSummary(
+        await this.requireRun(this.client, existingBranch.id, request.organizationId),
+      );
+    }
+  }
+
   async execute<TState>(
     command: RunCommand,
     pack: ScenarioPack<TState>,
@@ -630,6 +898,193 @@ export class PrismaRunRepository {
       throw new ApplicationError('NOT_FOUND', 'Approval was not found for this run.');
     }
     return approval;
+  }
+
+  async getReview(runId: string, organizationId: string): Promise<ReviewSummary> {
+    const [run, overview, timeline, approvals, decisions, evaluations, remediationItems, checkpoints, branches] =
+      await Promise.all([
+        this.requireRun(this.client, runId, organizationId),
+        this.client.runOverviewProjection.findUnique({ where: { runId }, select: { data: true } }),
+        this.client.runEvent.findMany({
+          where: { runId },
+          orderBy: { sequence: 'asc' },
+          select: { sequence: true, type: true, source: true, simulatedAt: true, payload: true },
+        }),
+        this.listApprovals(runId, organizationId),
+        this.client.decision.findMany({
+          where: { runId },
+          orderBy: { sequence: 'asc' },
+        }),
+        this.client.evaluation.findMany({
+          where: { runId },
+          include: { evidences: { orderBy: { sequence: 'asc' } } },
+          orderBy: [{ sequence: 'desc' }, { evaluatorKey: 'asc' }],
+        }),
+        this.client.remediationItem.findMany({
+          where: { runId },
+          orderBy: { updatedAt: 'desc' },
+        }),
+        this.client.checkpoint.findMany({
+          where: { runId },
+          orderBy: { sequence: 'asc' },
+        }),
+        this.client.simulationRun.findMany({
+          where: { parentRunId: runId },
+          select: { id: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+      ]);
+    const comparison =
+      run.parentRunId === null || run.branchFromSequence === null
+        ? undefined
+        : await this.getBranchComparison(run, run.parentRunId, run.branchFromSequence);
+    return {
+      run: {
+        ...toRunSummary(run),
+        data: overview ? jsonRecordOrEmpty(overview.data) : {},
+      },
+      timeline: timeline.map((event) => ({
+        sequence: event.sequence,
+        type: event.type,
+        source: event.source,
+        simulatedAt: event.simulatedAt.toISOString(),
+        payload: jsonRecordOrEmpty(event.payload),
+      })),
+      approvals,
+      decisions: decisions.map((decision) => ({
+        id: decision.id,
+        sequence: decision.sequence,
+        decision: decision.decision,
+        approvalId: decision.approvalId ?? undefined,
+        actorName: decision.actorName ?? undefined,
+        createdAt: decision.createdAt.toISOString(),
+      })),
+      evaluations: evaluations.map((evaluation) => ({
+        id: evaluation.id,
+        evaluatorKey: evaluation.evaluatorKey,
+        sequence: evaluation.sequence,
+        score: evaluation.score,
+        summary: evaluation.summary,
+        evidence: evaluation.evidences.map((evidence) => ({
+          id: evidence.id,
+          sequence: evidence.sequence,
+          eventType: evidence.eventType,
+          label: evidence.label,
+        })),
+      })),
+      remediationItems: remediationItems.map((item) => ({
+        id: item.id,
+        evaluationId: item.evaluationId ?? undefined,
+        title: item.title,
+        description: item.description,
+        status: item.status,
+        dueAt: item.dueAt?.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+      })),
+      checkpoints: checkpoints.map((checkpoint) => ({
+        sequence: checkpoint.sequence,
+        label: checkpoint.label,
+        createdAt: checkpoint.createdAt.toISOString(),
+      })),
+      branch: {
+        parentRunId: run.parentRunId ?? undefined,
+        branchFromSequence: run.branchFromSequence ?? undefined,
+        childRunIds: branches.map((branch) => branch.id),
+        comparison,
+      },
+    };
+  }
+
+  async getReplay(
+    runId: string,
+    organizationId: string,
+    targetSequence: number | undefined,
+    pack: ScenarioPack<unknown>,
+  ): Promise<ReplaySummary> {
+    const run = await this.requireRun(this.client, runId, organizationId);
+    const sequence = Math.min(Math.max(targetSequence ?? run.latestSequence, 0), run.latestSequence);
+    const snapshot = await this.client.stateSnapshot.findFirst({
+      where: { runId, sequence: { lte: sequence } },
+      orderBy: { sequence: 'desc' },
+    });
+    const persistedSnapshot = snapshot
+      ? parsePersistedSimulationState(
+          snapshot.state,
+          snapshot.checksum,
+          snapshot.schemaVersion,
+          snapshot.sequence,
+        )
+      : undefined;
+    const kernel = new SimulationKernel(pack);
+    const initial = persistedSnapshot
+      ? persistedSnapshot.state
+      : kernel.initialize({
+          organizationId: run.organizationId,
+          runId: run.id,
+          seed: run.seed,
+          config: jsonRecord(run.scenarioVersion.config),
+          simulatedAt: run.createdAt.toISOString(),
+        });
+    const events = await this.client.runEvent.findMany({
+      where: {
+        runId,
+        sequence: { gt: persistedSnapshot?.sequence ?? 0, lte: sequence },
+      },
+      orderBy: { sequence: 'asc' },
+    });
+    const state = kernel.replay(initial, events.map(fromDatabaseEvent));
+    return {
+      sequence,
+      source: persistedSnapshot ? 'snapshot' : 'full',
+      state: toInputJson(state) as unknown as Record<string, unknown>,
+    };
+  }
+
+  async createRemediationItem(
+    input: {
+      runId: string;
+      organizationId: string;
+      evaluationId?: string;
+      title: string;
+      description: string;
+      dueAt?: Date;
+    },
+  ) {
+    await this.requireRun(this.client, input.runId, input.organizationId);
+    if (input.evaluationId) {
+      const evaluation = await this.client.evaluation.findFirst({
+        where: { id: input.evaluationId, runId: input.runId },
+        select: { id: true },
+      });
+      if (!evaluation) {
+        throw new ApplicationError('NOT_FOUND', 'Evaluation was not found for this run.');
+      }
+    }
+    return this.client.remediationItem.create({
+      data: {
+        runId: input.runId,
+        evaluationId: input.evaluationId ?? null,
+        title: input.title,
+        description: input.description,
+        dueAt: input.dueAt ?? null,
+      },
+    });
+  }
+
+  async updateRemediationItem(
+    runId: string,
+    organizationId: string,
+    itemId: string,
+    status: 'open' | 'in_progress' | 'resolved',
+  ) {
+    await this.requireRun(this.client, runId, organizationId);
+    const updated = await this.client.remediationItem.updateMany({
+      where: { id: itemId, runId },
+      data: { status },
+    });
+    if (updated.count !== 1) {
+      throw new ApplicationError('NOT_FOUND', 'Remediation item was not found for this run.');
+    }
   }
 
   async markApprovalStale(
@@ -960,8 +1415,21 @@ export class PrismaRunRepository {
     kernel: SimulationKernel<TState>,
     config: Record<string, unknown>,
   ): Promise<SimulationState<TState>> {
+    return this.loadStateAtSequence(tx, run, kernel, config, run.latestSequence);
+  }
+
+  private async loadStateAtSequence<TState>(
+    tx: Prisma.TransactionClient,
+    run: Awaited<ReturnType<PrismaRunRepository['requireRun']>>,
+    kernel: SimulationKernel<TState>,
+    config: Record<string, unknown>,
+    targetSequence: number,
+  ): Promise<SimulationState<TState>> {
     const snapshot = await tx.stateSnapshot.findFirst({
-      where: { runId: run.id },
+      where: {
+        runId: run.id,
+        sequence: { lte: targetSequence },
+      },
       orderBy: { sequence: 'desc' },
     });
     const persistedSnapshot = snapshot
@@ -986,11 +1454,111 @@ export class PrismaRunRepository {
         runId: run.id,
         sequence: {
           gt: persistedSnapshot?.sequence ?? 0,
+          lte: targetSequence,
         },
       },
       orderBy: { sequence: 'asc' },
     });
     return kernel.replay(initialState, events.map(fromDatabaseEvent));
+  }
+
+  private async writeStateSnapshot<TState>(
+    tx: Prisma.TransactionClient,
+    runId: string,
+    sequence: number,
+    state: SimulationState<TState>,
+  ): Promise<void> {
+    const persistedState = toInputJson(state);
+    await tx.stateSnapshot.upsert({
+      where: {
+        runId_sequence: { runId, sequence },
+      },
+      create: {
+        runId,
+        sequence,
+        schemaVersion: stateSnapshotSchemaVersion,
+        state: persistedState,
+        checksum: checksumState(persistedState),
+      },
+      update: {
+        schemaVersion: stateSnapshotSchemaVersion,
+        state: persistedState,
+        checksum: checksumState(persistedState),
+      },
+    });
+  }
+
+  private async getBranchComparison(
+    branchRun: Awaited<ReturnType<PrismaRunRepository['requireRun']>>,
+    parentRunId: string,
+    branchFromSequence: number,
+  ): Promise<NonNullable<ReviewSummary['branch']['comparison']>> {
+    const [parent, parentEvents, branchEvents, parentEvaluations, branchEvaluations] =
+      await Promise.all([
+        this.client.simulationRun.findUniqueOrThrow({ where: { id: parentRunId } }),
+        this.client.runEvent.findMany({
+          where: { runId: parentRunId, sequence: { gt: branchFromSequence } },
+          select: { type: true },
+        }),
+        this.client.runEvent.findMany({
+          where: { runId: branchRun.id, sequence: { gt: 1 } },
+          select: { type: true },
+        }),
+        this.client.evaluation.findMany({
+          where: { runId: parentRunId },
+          orderBy: [{ sequence: 'desc' }, { createdAt: 'desc' }],
+        }),
+        this.client.evaluation.findMany({
+          where: { runId: branchRun.id },
+          orderBy: [{ sequence: 'desc' }, { createdAt: 'desc' }],
+        }),
+      ]);
+    const eventTypes = new Set([
+      ...parentEvents.map((event) => event.type),
+      ...branchEvents.map((event) => event.type),
+    ]);
+    const latestParentScores = latestEvaluationScores(parentEvaluations);
+    const latestBranchScores = latestEvaluationScores(branchEvaluations);
+    const evaluatorKeys = new Set([...latestParentScores.keys(), ...latestBranchScores.keys()]);
+
+    return {
+      parentRunId,
+      branchRunId: branchRun.id,
+      branchFromSequence,
+      virtualTime: {
+        parent: parent.virtualTime,
+        branch: branchRun.virtualTime,
+        delta: branchRun.virtualTime - parent.virtualTime,
+      },
+      eventCounts: {
+        parentAfterBranch: parentEvents.length,
+        branch: branchEvents.length,
+      },
+      significantEvents: [...eventTypes]
+        .sort()
+        .map((type) => ({
+          type,
+          parentCount: parentEvents.filter((event) => event.type === type).length,
+          branchCount: branchEvents.filter((event) => event.type === type).length,
+        }))
+        .filter((event) => event.parentCount !== event.branchCount),
+      evaluationChanges: [...evaluatorKeys]
+        .sort()
+        .map((evaluatorKey) => {
+          const parentScore = latestParentScores.get(evaluatorKey);
+          const branchScore = latestBranchScores.get(evaluatorKey);
+          return {
+            evaluatorKey,
+            parentScore,
+            branchScore,
+            delta:
+              parentScore === undefined || branchScore === undefined
+                ? undefined
+                : branchScore - parentScore,
+          };
+        }),
+      status: { parent: parent.status, branch: branchRun.status },
+    };
   }
 
   private async writeEventsAndProjections<TState>(
@@ -1349,6 +1917,18 @@ export class RunApplicationService {
     return this.repository.createRun(request, this.specializePack(config));
   }
 
+  async createBranchRun(request: CreateBranchRequest): Promise<RunSummary> {
+    return this.repository.createBranchRun(
+      request,
+      this.specializePack(
+        await this.getRunScenarioVersionConfig({
+          runId: request.parentRunId,
+          organizationId: request.organizationId,
+        }),
+      ),
+    );
+  }
+
   async execute(command: RunCommand): Promise<CommandExecution> {
     return this.repository.execute(
       command,
@@ -1442,6 +2022,43 @@ export class RunApplicationService {
 
   async listApprovals(runId: string, organizationId: string): Promise<readonly ApprovalSummary[]> {
     return this.repository.listApprovals(runId, organizationId);
+  }
+
+  async getReview(runId: string, organizationId: string): Promise<ReviewSummary> {
+    return this.repository.getReview(runId, organizationId);
+  }
+
+  async getReplay(
+    runId: string,
+    organizationId: string,
+    targetSequence?: number,
+  ): Promise<ReplaySummary> {
+    return this.repository.getReplay(
+      runId,
+      organizationId,
+      targetSequence,
+      this.specializePack(await this.getRunScenarioVersionConfig({ runId, organizationId })),
+    );
+  }
+
+  async createRemediationItem(input: {
+    runId: string;
+    organizationId: string;
+    evaluationId?: string;
+    title: string;
+    description: string;
+    dueAt?: Date;
+  }) {
+    return this.repository.createRemediationItem(input);
+  }
+
+  async updateRemediationItem(
+    runId: string,
+    organizationId: string,
+    itemId: string,
+    status: 'open' | 'in_progress' | 'resolved',
+  ) {
+    return this.repository.updateRemediationItem(runId, organizationId, itemId, status);
   }
 
   /**
@@ -1933,6 +2550,18 @@ function readCheckpointLabel(payload: unknown): string {
     return payload.label;
   }
   return 'Checkpoint';
+}
+
+function latestEvaluationScores(
+  evaluations: readonly { evaluatorKey: string; score: number }[],
+): ReadonlyMap<string, number> {
+  const scores = new Map<string, number>();
+  for (const evaluation of evaluations) {
+    if (!scores.has(evaluation.evaluatorKey)) {
+      scores.set(evaluation.evaluatorKey, evaluation.score);
+    }
+  }
+  return scores;
 }
 
 function retryDelayMilliseconds(attempts: number): number {

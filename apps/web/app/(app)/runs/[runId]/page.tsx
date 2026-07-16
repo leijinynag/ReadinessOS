@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ClipboardCheck } from 'lucide-react';
 import Link from 'next/link';
 import { OrganizationAuthorizationService } from '@readinessos/application';
 import { prisma } from '@readinessos/database';
@@ -112,6 +112,9 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
         <div className="page-content">
           <Link className="back-link" href="/scenarios">
             <ArrowLeft size={16} aria-hidden="true" /> 返回场景列表
+          </Link>
+          <Link className="back-link" href={`/runs/${runId}/review`}>
+            <ClipboardCheck size={16} aria-hidden="true" /> 查看复盘
           </Link>
         </div>
       </div>

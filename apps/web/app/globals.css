@@ -1545,6 +1545,261 @@ h1 {
   margin-top: 12px;
 }
 
+.review-page {
+  padding-top: 36px;
+}
+
+.review-header,
+.review-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.review-header .button {
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.review-score-grid {
+  display: grid;
+  gap: 12px;
+  margin: 26px 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-score-grid article,
+.review-timeline,
+.review-inspector > section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.review-score-grid article {
+  padding: 16px;
+}
+
+.review-score-grid span,
+.review-score-grid p,
+.review-inspector p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.review-score-grid strong {
+  display: block;
+  margin: 7px 0;
+  color: var(--teal);
+  font-size: 28px;
+}
+
+.review-score-grid p {
+  min-height: 40px;
+  margin: 0;
+}
+
+.review-score-grid button {
+  margin: 8px 6px 0 0;
+  border: 0;
+  padding: 0;
+  color: var(--teal);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.review-grid {
+  display: grid;
+  align-items: start;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+}
+
+.review-timeline {
+  overflow: hidden;
+}
+
+.review-timeline > .review-section-heading,
+.review-inspector > section {
+  padding: 18px;
+}
+
+.review-section-heading h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.review-section-heading > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-timeline ol,
+.review-decision-list,
+.review-remediation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-timeline li {
+  border-top: 1px solid var(--line);
+}
+
+.review-timeline li.is-selected {
+  background: #ecfdf5;
+}
+
+.review-timeline li button {
+  display: grid;
+  width: 100%;
+  gap: 4px 12px;
+  border: 0;
+  padding: 13px 18px;
+  color: var(--navy);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  grid-template-columns: 54px minmax(0, 1fr);
+}
+
+.review-timeline li span,
+.review-timeline li small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-timeline li small {
+  grid-column: 2;
+}
+
+.review-inspector {
+  display: grid;
+  gap: 16px;
+}
+
+.review-inspector > section {
+  padding: 16px;
+}
+
+.review-inspector pre {
+  max-height: 270px;
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  color: var(--navy);
+  background: #f8fafc;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.review-decision-list {
+  display: grid;
+  gap: 8px;
+}
+
+.review-decision-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.review-decision-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-remediation-form {
+  display: grid;
+  gap: 8px;
+}
+
+.review-remediation-form input,
+.review-remediation-form textarea,
+.review-remediation-list select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  color: var(--navy);
+  background: var(--surface);
+}
+
+.review-remediation-form textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.review-remediation-form .button {
+  justify-self: start;
+}
+
+.review-remediation-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.review-remediation-list li {
+  display: grid;
+  align-items: start;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1fr) 100px;
+}
+
+.review-remediation-list p {
+  margin: 4px 0 0;
+}
+
+.review-branch-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.review-branch-form input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  color: var(--navy);
+  background: var(--surface);
+}
+
+.review-branch-form .button {
+  justify-self: start;
+  gap: 6px;
+}
+
+.review-branch-form a {
+  color: var(--teal);
+  font-size: 13px;
+}
+
+.review-branch-diff {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.review-branch-diff ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 17px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .live-participant-list {
   display: grid;
   border-top: 1px solid var(--line);
