@@ -5,6 +5,7 @@ node_modules/
 # Build and test output
 .next/
 .turbo/
+.eve/
 dist/
 coverage/
 playwright-report/

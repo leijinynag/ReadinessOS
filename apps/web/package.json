@@ -30,6 +30,7 @@
     "react-dom": "19.2.7",
     "tailwindcss": "4.3.2",
     "workflow": "4.6.0",
+    "xstate": "5.25.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

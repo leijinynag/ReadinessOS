@@ -7,6 +7,14 @@ import { getAuthSession } from '@/lib/auth-session';
 import { runService } from '@/lib/run-runtime';
 import { LiveWorkspace, type LiveParticipant } from './live-workspace';
 
+export type LiveAction = {
+  key: string;
+  label: string;
+  risk: 'low' | 'high';
+  approval: 'none' | 'required';
+  participantIds: readonly string[];
+};
+
 type LiveRunPageProps = {
   params: Promise<{ runId: string }>;
 };
@@ -32,7 +40,7 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
     runReference.organizationId,
   );
 
-  const [run, records] = await Promise.all([
+  const [run, records, specializedPack] = await Promise.all([
     runService.getRun(runId, runReference.organizationId),
     prisma.runParticipant.findMany({
       where: { runId },
@@ -44,6 +52,7 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
         controller: true,
         capabilities: true,
         objectives: true,
+        knowledgeScopes: true,
         projection: {
           select: {
             status: true,
@@ -52,13 +61,49 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
         },
       },
     }),
+    runService.getRunScenarioPack(runId, runReference.organizationId),
   ]);
 
-  const participants: LiveParticipant[] = records.map((participant) => ({
-    ...participant,
-    controller: participant.controller,
-    capabilities: stringArray(participant.capabilities),
-    objectives: stringArray(participant.objectives),
+  const runtimeParticipantIdsByKey = new Map(
+    specializedPack.participants.map((participant) => [participant.key, participant.id]),
+  );
+  const participants: LiveParticipant[] = records.flatMap((participant) => {
+    const runtimeParticipantId = runtimeParticipantIdsByKey.get(participant.key);
+    // RunParticipant 是投影记录，Kernel 只认识 Pack 里的静态参与方 ID。
+    // 如果两者不再对应，则不向浏览器暴露不可执行的参与方。
+    if (!runtimeParticipantId) {
+      return [];
+    }
+    return [
+      {
+        ...participant,
+        runtimeParticipantId,
+        controller: participant.controller,
+        capabilities: stringArray(participant.capabilities),
+        objectives: stringArray(participant.objectives),
+        knowledgeScopes: stringArray(participant.knowledgeScopes),
+      },
+    ];
+  });
+  const actionDefinitions = specializedPack.actions.map((action) => ({
+    key: action.key,
+    label: action.label,
+    risk: action.risk,
+    approval: action.approval,
+    participantIds: participants
+      .filter(
+        (participant) =>
+          participant.controller === 'human' &&
+          containsAll(participant.capabilities, action.requiredCapabilities),
+      )
+      .map((participant) => participant.runtimeParticipantId),
+  }));
+  const actions: LiveAction[] = actionDefinitions.filter(
+    (action) => action.participantIds.length > 0,
+  );
+  const injects = specializedPack.injects.map((inject) => ({
+    key: inject.key,
+    label: inject.key.replaceAll('-', ' '),
   }));
 
   return (
@@ -70,7 +115,7 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
           </Link>
         </div>
       </div>
-      <LiveWorkspace run={run} participants={participants} />
+      <LiveWorkspace run={run} participants={participants} actions={actions} injects={injects} />
     </>
   );
 }
@@ -79,4 +124,8 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function containsAll(values: readonly string[], required: readonly string[] | undefined): boolean {
+  return required?.every((item) => values.includes(item)) ?? true;
 }

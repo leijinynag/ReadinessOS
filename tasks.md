@@ -217,32 +217,32 @@
 ### Live Runtime
 
 - [x] `W4-06` 创建 Live 页面主布局和响应式区域。
-- [ ] `W4-07` 实现 RunEventStore、cursor、去重和 pending command queue。
-- [ ] `W4-08` 实现 Run、Connection 和 Approval XState Actors。
-- [ ] `W4-09` 实现风险摘要、业务指标、目标和虚拟时间。
-- [ ] `W4-10` 实现动态参与方状态和 Capability 模块。
-- [ ] `W4-11` 使用 TanStack Virtual 实现 Timeline。
-- [ ] `W4-12` 实现用户动作提交及 pending/accepted/rejected 状态。
-- [ ] `W4-13` 实现暂停、继续和 Director Inject 控制。
-- [ ] `W4-14` 实现 SSE 连接状态、断线恢复和缺口提示。
-- [ ] `W4-15` 确保 Agent 发言、提议动作与执行结果在时间线中可区分。
+- [x] `W4-07` 实现 RunEventStore、cursor、去重和 pending command queue。
+- [x] `W4-08` 实现 Run、Connection 和 Approval XState Actors。
+- [x] `W4-09` 实现风险摘要、业务指标、目标和虚拟时间。
+- [x] `W4-10` 实现动态参与方状态和 Capability 模块。
+- [x] `W4-11` 使用 TanStack Virtual 实现 Timeline。
+- [x] `W4-12` 实现用户动作提交及 pending/accepted/rejected 状态。
+- [x] `W4-13` 实现暂停、继续和 Director Inject 控制。
+- [x] `W4-14` 实现 SSE 连接状态、断线恢复和缺口提示。
+- [x] `W4-15` 确保 Agent 发言、提议动作与执行结果在时间线中可区分。
 
 ### UI 验证
 
-- [ ] `W4-16` 添加 Studio 到 Live 的组件和集成测试。
+- [x] `W4-16` 添加 Studio 到 Live 的组件和集成测试。
 - [ ] `W4-17` 添加一个 human 与至少两个 Agent 的纵向 E2E。
 - [ ] `W4-18` 添加断网 30 秒后恢复 E2E。
 - [ ] `W4-19` 使用 Playwright 检查桌面和手机视口无重叠、溢出。
-- [ ] `W4-20` 验证键盘操作和关键无障碍名称。
+- [x] `W4-20` 验证键盘操作和关键无障碍名称。
 
 ### W4 验收
 
-- [ ] `W4-A1` 用户可从 Studio 配置进入真实 Live Run。
+- [x] `W4-A1` 用户可从 Studio 配置进入真实 Live Run。
 - [ ] `W4-A2` human 与 Agent 可在同一运行中产生可追踪事件。
 - [ ] `W4-A3` 页面刷新和短时断网后恢复正确。
 - [ ] `W4-A4` 桌面和手机关键路径可用。
-- [ ] `W4-C1` Commit Checkpoint：提交 Studio 纵向路径，建议 `feat(studio): add scenario configuration and immutable versions`。
-- [ ] `W4-C2` Commit Checkpoint：提交 Live Workspace，建议 `feat(live): add realtime simulation workspace`。
+- [x] `W4-C1` Commit Checkpoint：提交 Studio 纵向路径，建议 `feat(studio): add scenario configuration and immutable versions`。
+- [x] `W4-C2` Commit Checkpoint：提交 Live Workspace，建议 `feat(live): add realtime simulation workspace`。
 - [ ] `W4-P1` Push Checkpoint：推送 W4 分支并更新 PR。
 
 ---

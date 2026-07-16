@@ -1188,6 +1188,14 @@ export class RunApplicationService {
     return this.repository.getRun(runId, organizationId);
   }
 
+  /**
+   * Web 层只需要消费已按 ScenarioVersion 收敛后的 Pack，不应自行读取
+   * 版本配置再套用覆盖规则，避免 UI 与命令执行出现两套参与方语义。
+   */
+  async getRunScenarioPack(runId: string, organizationId: string): Promise<ScenarioPack<unknown>> {
+    return this.specializePack(await this.getRunScenarioVersionConfig({ runId, organizationId }));
+  }
+
   async getLatestRunningRuns(limit = 50): Promise<readonly RunSummary[]> {
     return this.repository.getLatestRunningRuns(limit);
   }

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   findRun: vi.fn(),
   findParticipants: vi.fn(),
   getRun: vi.fn(),
+  getRunScenarioPack: vi.fn(),
   redirect: vi.fn((path: string): never => {
     throw new Error(`NEXT_REDIRECT:${path}`);
   }),
@@ -15,7 +16,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth-session', () => ({ getAuthSession: mocks.getAuthSession }));
-vi.mock('@/lib/run-runtime', () => ({ runService: { getRun: mocks.getRun } }));
+vi.mock('@/lib/run-runtime', () => ({
+  runService: {
+    getRun: mocks.getRun,
+    getRunScenarioPack: mocks.getRunScenarioPack,
+  },
+}));
 vi.mock('@readinessos/database', () => ({
   prisma: {
     simulationRun: { findUnique: mocks.findRun },
@@ -41,6 +47,24 @@ beforeEach(() => {
   });
   mocks.findRun.mockResolvedValue({ organizationId });
   mocks.getRun.mockResolvedValue(runFixture());
+  mocks.getRunScenarioPack.mockResolvedValue({
+    participants: [
+      {
+        id: '018f4c8b-9ae2-7a72-86bd-4f867befef31',
+        key: 'incident-commander',
+      },
+    ],
+    actions: [
+      {
+        key: 'declare-incident',
+        label: '宣布事故',
+        risk: 'high',
+        approval: 'required',
+        requiredCapabilities: ['declare-incident'],
+      },
+    ],
+    injects: [],
+  });
   mocks.findParticipants.mockResolvedValue([
     {
       id: '018f4c8b-9ae2-7a72-86bd-4f867befef13',
@@ -49,6 +73,7 @@ beforeEach(() => {
       controller: 'human',
       capabilities: ['declare-incident', 'coordinate-response'],
       objectives: ['serviceAvailability', 'customerTrust'],
+      knowledgeScopes: ['incident', 'metrics'],
       projection: { status: 'active', data: {} },
     },
   ]);
@@ -65,8 +90,11 @@ describe('LiveRunPage', () => {
     expect(screen.getByText('96%')).toBeVisible();
     expect(screen.getByText('SEV1')).toBeVisible();
     expect(screen.getByRole('heading', { name: '参与方检查器' })).toBeVisible();
-    expect(screen.getByText('Incident Commander')).toBeVisible();
-    expect(screen.getByText('事件流准备加载')).toBeVisible();
+    expect(screen.getByText('Incident Commander', { selector: 'strong' })).toBeVisible();
+    expect(screen.getByText('等待运行事件')).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Incident Commander' })).toHaveValue(
+      '018f4c8b-9ae2-7a72-86bd-4f867befef31',
+    );
     expect(screen.getByRole('link', { name: '返回场景列表' })).toHaveAttribute(
       'href',
       '/scenarios',
