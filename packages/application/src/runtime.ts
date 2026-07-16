@@ -615,7 +615,11 @@ export class PrismaRunRepository {
           config,
           simulatedAt: parentState.run.simulatedAt,
         };
-        const childResult = kernel.createBranchRun(input, parentState, createKernelContext(recordedAt));
+        const childResult = kernel.createBranchRun(
+          input,
+          parentState,
+          createKernelContext(recordedAt),
+        );
         await tx.runParticipant.createMany({
           data: pack.participants.map((participant) => ({
             runId: childRunId,
@@ -682,7 +686,10 @@ export class PrismaRunRepository {
           createKernelContext(recordedAt),
         );
         if (parentBranchResult.status !== 'accepted') {
-          throw new ApplicationError('INTERNAL_ERROR', 'The parent branch audit event was rejected.');
+          throw new ApplicationError(
+            'INTERNAL_ERROR',
+            'The parent branch audit event was rejected.',
+          );
         }
         const parentUpdate = await tx.simulationRun.updateMany({
           where: { id: parent.id, version: parent.version },
@@ -901,39 +908,48 @@ export class PrismaRunRepository {
   }
 
   async getReview(runId: string, organizationId: string): Promise<ReviewSummary> {
-    const [run, overview, timeline, approvals, decisions, evaluations, remediationItems, checkpoints, branches] =
-      await Promise.all([
-        this.requireRun(this.client, runId, organizationId),
-        this.client.runOverviewProjection.findUnique({ where: { runId }, select: { data: true } }),
-        this.client.runEvent.findMany({
-          where: { runId },
-          orderBy: { sequence: 'asc' },
-          select: { sequence: true, type: true, source: true, simulatedAt: true, payload: true },
-        }),
-        this.listApprovals(runId, organizationId),
-        this.client.decision.findMany({
-          where: { runId },
-          orderBy: { sequence: 'asc' },
-        }),
-        this.client.evaluation.findMany({
-          where: { runId },
-          include: { evidences: { orderBy: { sequence: 'asc' } } },
-          orderBy: [{ sequence: 'desc' }, { evaluatorKey: 'asc' }],
-        }),
-        this.client.remediationItem.findMany({
-          where: { runId },
-          orderBy: { updatedAt: 'desc' },
-        }),
-        this.client.checkpoint.findMany({
-          where: { runId },
-          orderBy: { sequence: 'asc' },
-        }),
-        this.client.simulationRun.findMany({
-          where: { parentRunId: runId },
-          select: { id: true },
-          orderBy: { createdAt: 'asc' },
-        }),
-      ]);
+    const [
+      run,
+      overview,
+      timeline,
+      approvals,
+      decisions,
+      evaluations,
+      remediationItems,
+      checkpoints,
+      branches,
+    ] = await Promise.all([
+      this.requireRun(this.client, runId, organizationId),
+      this.client.runOverviewProjection.findUnique({ where: { runId }, select: { data: true } }),
+      this.client.runEvent.findMany({
+        where: { runId },
+        orderBy: { sequence: 'asc' },
+        select: { sequence: true, type: true, source: true, simulatedAt: true, payload: true },
+      }),
+      this.listApprovals(runId, organizationId),
+      this.client.decision.findMany({
+        where: { runId },
+        orderBy: { sequence: 'asc' },
+      }),
+      this.client.evaluation.findMany({
+        where: { runId },
+        include: { evidences: { orderBy: { sequence: 'asc' } } },
+        orderBy: [{ sequence: 'desc' }, { evaluatorKey: 'asc' }],
+      }),
+      this.client.remediationItem.findMany({
+        where: { runId },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.client.checkpoint.findMany({
+        where: { runId },
+        orderBy: { sequence: 'asc' },
+      }),
+      this.client.simulationRun.findMany({
+        where: { parentRunId: runId },
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
     const comparison =
       run.parentRunId === null || run.branchFromSequence === null
         ? undefined
@@ -1002,7 +1018,10 @@ export class PrismaRunRepository {
     pack: ScenarioPack<unknown>,
   ): Promise<ReplaySummary> {
     const run = await this.requireRun(this.client, runId, organizationId);
-    const sequence = Math.min(Math.max(targetSequence ?? run.latestSequence, 0), run.latestSequence);
+    const sequence = Math.min(
+      Math.max(targetSequence ?? run.latestSequence, 0),
+      run.latestSequence,
+    );
     const snapshot = await this.client.stateSnapshot.findFirst({
       where: { runId, sequence: { lte: sequence } },
       orderBy: { sequence: 'desc' },
@@ -1040,16 +1059,14 @@ export class PrismaRunRepository {
     };
   }
 
-  async createRemediationItem(
-    input: {
-      runId: string;
-      organizationId: string;
-      evaluationId?: string;
-      title: string;
-      description: string;
-      dueAt?: Date;
-    },
-  ) {
+  async createRemediationItem(input: {
+    runId: string;
+    organizationId: string;
+    evaluationId?: string;
+    title: string;
+    description: string;
+    dueAt?: Date;
+  }) {
     await this.requireRun(this.client, input.runId, input.organizationId);
     if (input.evaluationId) {
       const evaluation = await this.client.evaluation.findFirst({
@@ -1542,21 +1559,19 @@ export class PrismaRunRepository {
           branchCount: branchEvents.filter((event) => event.type === type).length,
         }))
         .filter((event) => event.parentCount !== event.branchCount),
-      evaluationChanges: [...evaluatorKeys]
-        .sort()
-        .map((evaluatorKey) => {
-          const parentScore = latestParentScores.get(evaluatorKey);
-          const branchScore = latestBranchScores.get(evaluatorKey);
-          return {
-            evaluatorKey,
-            parentScore,
-            branchScore,
-            delta:
-              parentScore === undefined || branchScore === undefined
-                ? undefined
-                : branchScore - parentScore,
-          };
-        }),
+      evaluationChanges: [...evaluatorKeys].sort().map((evaluatorKey) => {
+        const parentScore = latestParentScores.get(evaluatorKey);
+        const branchScore = latestBranchScores.get(evaluatorKey);
+        return {
+          evaluatorKey,
+          parentScore,
+          branchScore,
+          delta:
+            parentScore === undefined || branchScore === undefined
+              ? undefined
+              : branchScore - parentScore,
+        };
+      }),
       status: { parent: parent.status, branch: branchRun.status },
     };
   }
@@ -1740,7 +1755,9 @@ export class PrismaRunRepository {
     runId: string,
     result: KernelResult<TState>,
   ): Promise<void> {
-    for (const event of result.events.filter((candidate) => candidate.type === 'action.approval_requested')) {
+    for (const event of result.events.filter(
+      (candidate) => candidate.type === 'action.approval_requested',
+    )) {
       const payload = jsonRecordOrEmpty(event.payload);
       const approvalId = readRequiredString(payload, 'approvalId');
       const requestedAt = new Date(event.recordedAt);

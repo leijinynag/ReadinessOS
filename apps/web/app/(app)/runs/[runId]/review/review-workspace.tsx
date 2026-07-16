@@ -145,11 +145,16 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
           </div>
           <ol>
             {review.timeline.map((event) => (
-              <li key={event.sequence} className={selectedSequence === event.sequence ? 'is-selected' : ''}>
+              <li
+                key={event.sequence}
+                className={selectedSequence === event.sequence ? 'is-selected' : ''}
+              >
                 <button type="button" onClick={() => void replayTo(event.sequence)}>
                   <span>#{event.sequence}</span>
                   <strong>{event.type}</strong>
-                  <small>{event.source} · T+{new Date(event.simulatedAt).toISOString()}</small>
+                  <small>
+                    {event.source} · T+{new Date(event.simulatedAt).toISOString()}
+                  </small>
                 </button>
               </li>
             ))}
@@ -166,7 +171,11 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
               <RotateCcw size={17} aria-hidden="true" />
             </div>
             <p>当前 sequence #{selectedSequence}</p>
-            <pre>{loadingReplay ? '正在回放…' : JSON.stringify(replay, null, 2) || '选择时间线事件查看状态。'}</pre>
+            <pre>
+              {loadingReplay
+                ? '正在回放…'
+                : JSON.stringify(replay, null, 2) || '选择时间线事件查看状态。'}
+            </pre>
           </section>
 
           <section>
@@ -181,7 +190,9 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
               {review.decisions.map((decision) => (
                 <li key={decision.id}>
                   <strong>{decision.decision}</strong>
-                  <span>#{decision.sequence} · {decision.actorName ?? '系统'}</span>
+                  <span>
+                    #{decision.sequence} · {decision.actorName ?? '系统'}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -262,7 +273,11 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
                 onChange={(event) => setRemediationDescription(event.target.value)}
                 placeholder="整改说明"
               />
-              <button className="button button-primary" type="button" onClick={() => void createRemediation()}>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => void createRemediation()}
+              >
                 新增整改
               </button>
             </div>

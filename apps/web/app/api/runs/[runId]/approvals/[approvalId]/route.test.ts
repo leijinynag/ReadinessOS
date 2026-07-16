@@ -13,7 +13,12 @@ vi.mock('@readinessos/database', () => ({
 }));
 vi.mock('@/lib/run-api', () => ({
   requireRunSession: mocks.requireSession,
-  userActor: () => ({ id: userId, type: 'user', organizationId, displayName: 'operator@example.com' }),
+  userActor: () => ({
+    id: userId,
+    type: 'user',
+    organizationId,
+    displayName: 'operator@example.com',
+  }),
 }));
 vi.mock('@/lib/run-runtime', () => ({
   runService: { resolveApproval: mocks.resolveApproval },

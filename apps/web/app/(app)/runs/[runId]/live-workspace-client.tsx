@@ -284,11 +284,7 @@ export function LiveWorkspaceClient({
   }, [fetchApprovals, fetchTraces, initialRun.id, recoverEvents, refreshRun, updateEventSnapshot]);
 
   const submitCommand = useCallback(
-    async (input: {
-      endpoint: string;
-      body: Record<string, unknown>;
-      label: string;
-    }) => {
+    async (input: { endpoint: string; body: Record<string, unknown>; label: string }) => {
       const id = newCommandId();
       eventStoreRef.current.enqueueCommand({ id, label: input.label });
       updateEventSnapshot();
@@ -723,7 +719,8 @@ export function LiveWorkspaceClient({
                       </strong>
                     </div>
                     <p>
-                      参数：{Object.keys(approval.parameters).length
+                      参数：
+                      {Object.keys(approval.parameters).length
                         ? JSON.stringify(approval.parameters)
                         : '无'}
                     </p>
