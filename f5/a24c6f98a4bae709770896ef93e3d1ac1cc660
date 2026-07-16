@@ -1,0 +1,47 @@
+apps/web/app/(app)/runs/[runId]/page.tsx
+  s_b45c549f48cfe4::t_0db97333eecb93 1,116-118
+apps/web/app/(app)/runs/[runId]/review/page.tsx
+  s_b45c549f48cfe4::t_cf3f89b81085a8 1-37
+apps/web/app/(app)/runs/[runId]/review/review-workspace.tsx
+  s_b45c549f48cfe4::t_09388f6cfb6c32 1-298
+apps/web/app/api/runs/[runId]/branches/route.test.ts
+  s_b45c549f48cfe4::t_4ceb86a616604d 1-85
+apps/web/app/api/runs/[runId]/branches/route.ts
+  s_b45c549f48cfe4::t_e03a853835e993 1-43
+apps/web/app/api/runs/[runId]/remediations/[itemId]/route.ts
+  s_b45c549f48cfe4::t_89207372c46170 1-28
+apps/web/app/api/runs/[runId]/remediations/route.ts
+  s_b45c549f48cfe4::t_d0e42f70f91d55 1-38
+apps/web/app/api/runs/[runId]/replay/route.ts
+  s_b45c549f48cfe4::t_9bc209b572f0c8 1-30
+apps/web/app/api/runs/[runId]/review/route.ts
+  s_b45c549f48cfe4::t_5b3495249841c1 1-25
+apps/web/app/globals.css
+  s_b45c549f48cfe4::t_d0fe7a0644a6f4 1548-1802
+packages/application/src/index.ts
+  s_b45c549f48cfe4::t_5c63f8864e7e5a 55-56,58
+packages/application/src/runtime.ts
+  s_b45c549f48cfe4::t_d608a07f0eb783 119-193,204-213,548-730,903-1089,1417-1426,1429-1432,1457,1465-1563,1920-1931,2027-2063,2555-2566
+packages/application/test/runtime.integration.test.ts
+  s_b45c549f48cfe4::t_9a9d441f001a13 330-414,647-649
+packages/simulation-kernel/src/index.ts
+  s_b45c549f48cfe4::t_ef6e9d3ee81eec 188-193,401-405,418-465,494-498,762-768,899-928
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f5a24c6f98a4bae709770896ef93e3d1ac1cc660",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
