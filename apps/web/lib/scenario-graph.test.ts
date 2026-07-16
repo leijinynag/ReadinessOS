@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { customerEscalationPack } from '@readinessos/scenario-pack-customer-escalation';
 import { saasIncidentPack } from '@readinessos/scenario-pack-saas-incident';
 import { buildScenarioGraph } from './scenario-graph';
 
@@ -71,5 +72,29 @@ describe('buildScenarioGraph', () => {
     expect(JSON.parse(serialized)).toEqual(graph);
     expect(serialized).not.toContain('stateSchema');
     expect(serialized).not.toContain('initialState');
+  });
+
+  it('对第二个场景也只输出通用图 DTO，不依赖场景专属页面', () => {
+    const graph = buildScenarioGraph(customerEscalationPack);
+    const serialized = JSON.stringify(graph);
+
+    expect(graph.packKey).toBe('customer-escalation');
+    expect(graph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'participant', label: 'Account Executive' }),
+        expect.objectContaining({ kind: 'action', label: 'Schedule production remediation' }),
+        expect.objectContaining({ kind: 'signal', label: 'Production remediation complete' }),
+      ]),
+    );
+    expect(graph.relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'schedules',
+          sourceLabel: 'Schedule production remediation',
+          targetLabel: 'remediation-complete',
+        }),
+      ]),
+    );
+    expect(JSON.parse(serialized)).toEqual(graph);
   });
 });

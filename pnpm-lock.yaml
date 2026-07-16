@@ -55,6 +55,9 @@ importers:
       '@readinessos/domain-events':
         specifier: workspace:*
         version: link:../../packages/domain-events
+      '@readinessos/scenario-pack-customer-escalation':
+        specifier: workspace:*
+        version: link:../../scenario-packs/customer-escalation
       '@readinessos/scenario-pack-saas-incident':
         specifier: workspace:*
         version: link:../../scenario-packs/saas-incident
@@ -148,6 +151,9 @@ importers:
       '@readinessos/domain-events':
         specifier: workspace:*
         version: link:../domain-events
+      '@readinessos/scenario-pack-customer-escalation':
+        specifier: workspace:*
+        version: link:../../scenario-packs/customer-escalation
       '@readinessos/scenario-pack-saas-incident':
         specifier: workspace:*
         version: link:../../scenario-packs/saas-incident
@@ -203,9 +209,15 @@ importers:
 
   scenario-packs/customer-escalation:
     dependencies:
+      '@readinessos/scenario-sdk':
+        specifier: workspace:*
+        version: link:../../packages/scenario-sdk
       '@readinessos/simulation-kernel':
         specifier: workspace:*
         version: link:../../packages/simulation-kernel
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   scenario-packs/saas-incident:
     dependencies:

@@ -8,11 +8,13 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@readinessos/simulation-kernel": "workspace:*"
+    "@readinessos/scenario-sdk": "workspace:*",
+    "@readinessos/simulation-kernel": "workspace:*",
+    "zod": "4.4.3"
   }
 }
