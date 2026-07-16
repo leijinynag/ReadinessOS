@@ -1,0 +1,21 @@
+scenario-packs/saas-incident/src/index.ts
+  s_b45c549f48cfe4::t_12537cb1481225 6-7,9,35,37-38,45-46,54-58,67-70,75-81,87-88,102,104-105,112-113,121-125,139-145,154-168,177-178,180,219-238,245-247,254-273,309-329,366,370-391,411-414,418-433,436,438,441-445,447,460,479,482-483,486-489,501,518-585,591,604-631,638,640-646,656-664,672-680,688-698,706-714,722-730,738-746,756-760,766-770
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "be9be6eddc8c64e1719557e157b0f0dd09671dd1",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
