@@ -1,0 +1,49 @@
+apps/web/lib/scenario-graph.test.ts
+  s_b45c549f48cfe4::t_ea831f02849589 2,76-99
+apps/web/lib/scenario-pack-registry.test.ts
+  s_b45c549f48cfe4::t_01058fa824fa6e 1-29
+apps/web/lib/scenario-pack-registry.ts
+  s_b45c549f48cfe4::t_9c1cc5df46644d 2,9-12
+apps/web/package.json
+  s_b45c549f48cfe4::t_a4502ba4a7248b 18
+docs/w7-extensibility-report.md
+  s_b45c549f48cfe4::t_ef08ccb38e3791 1-41
+packages/database/package.json
+  s_b45c549f48cfe4::t_b396ce914406d6 18
+packages/database/prisma/seed-version.ts
+  s_b45c549f48cfe4::t_2e14557e398759 3
+packages/database/prisma/seed.ts
+  s_b45c549f48cfe4::t_511c84f432f5e3 2,5,26-37,114-118,130-134,136
+pnpm-lock.yaml
+  s_b45c549f48cfe4::t_4f28d371dae0c6 58-60,154-156,212-214,218-220
+scenario-packs/customer-escalation/README.md
+  s_b45c549f48cfe4::t_25184543457d31 1-45
+scenario-packs/customer-escalation/package.json
+  s_b45c549f48cfe4::t_f11a37e0bccfcd 11,13,16-18
+scenario-packs/customer-escalation/src/index.ts
+  s_b45c549f48cfe4::t_53907fb1e82f11 1-12,14-608
+scenario-packs/customer-escalation/test/pack.test.ts
+  s_b45c549f48cfe4::t_3fd1cf6ea84de4 1-289
+scenario-packs/customer-escalation/tsconfig.json
+  s_b45c549f48cfe4::t_82ab0ea4e9f5f7 6
+tasks.md
+  s_b45c549f48cfe4::t_227090c4a971a2 329-336,340-343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b5ab914742567e40e7c5b33d466b8b5d33d2a707",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
