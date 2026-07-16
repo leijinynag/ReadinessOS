@@ -180,12 +180,17 @@ export type RunCommandPayload =
   | {
       readonly type: 'resolve-approval';
       readonly approvalId: string;
-      readonly decision: 'approved' | 'denied';
+      readonly decision: 'approved' | 'denied' | 'expired';
     }
   | { readonly type: 'trigger-inject'; readonly injectKey: string }
   | { readonly type: 'finish-run'; readonly reason: string }
   | { readonly type: 'create-checkpoint'; readonly label: string }
-  | { readonly type: 'create-branch'; readonly name: string };
+  | {
+      readonly type: 'create-branch';
+      readonly name: string;
+      readonly childRunId?: string;
+      readonly branchFromSequence?: number;
+    };
 
 export type RunCommand = CommandEnvelope<RunCommandPayload>;
 
@@ -393,7 +398,11 @@ export class SimulationKernel<TState> {
       type: 'run.created',
       source: 'system',
       idempotencyKey: `create:${input.runId}`,
-      payload: { seed: input.seed, scenarioKey: this.definition.key },
+      payload: {
+        seed: input.seed,
+        scenarioKey: this.definition.key,
+        simulatedAt: input.simulatedAt,
+      },
     });
     const state = this.applyEvent(initialState, event);
 
@@ -402,6 +411,54 @@ export class SimulationKernel<TState> {
       events: [event],
       sideEffects: [],
       evaluations: [],
+      status: 'accepted',
+    };
+  }
+
+  /**
+   * 分支 Run 不复制父事件流，而是把父状态作为新 Run 的创建基线写进自身首个事件。
+   * 这样即使子 Run 的 Snapshot 缺失，也能只靠自己的事件流恢复同一状态。
+   */
+  createBranchRun(
+    input: CreateRunInput,
+    inheritedState: SimulationState<TState>,
+    context: KernelContext,
+  ): KernelResult<TState> {
+    const initialState = this.initialize(input);
+    const branchState: SimulationState<TState> = {
+      ...cloneState(inheritedState),
+      run: {
+        organizationId: input.organizationId,
+        runId: input.runId,
+        status: 'created',
+        seed: input.seed,
+        version: 0,
+        latestSequence: 0,
+        virtualTimeMinutes: inheritedState.run.virtualTimeMinutes,
+        simulatedAt: inheritedState.run.simulatedAt,
+        appliedCommandIds: [],
+        appliedIdempotencyKeys: [],
+      },
+      pendingApprovals: {},
+    };
+    const event = this.createEvent(initialState, context, {
+      type: 'run.created',
+      source: 'system',
+      idempotencyKey: `create:${input.runId}`,
+      payload: {
+        seed: input.seed,
+        scenarioKey: this.definition.key,
+        simulatedAt: input.simulatedAt,
+        inheritedState: branchState,
+      },
+    });
+    const state = this.applyEvent(initialState, event);
+
+    return {
+      state,
+      events: [event],
+      sideEffects: [],
+      evaluations: this.evaluate(state),
       status: 'accepted',
     };
   }
@@ -434,7 +491,11 @@ export class SimulationKernel<TState> {
       return this.reject(state, 'RUN_VERSION_CONFLICT', 'Run version does not match the command.');
     }
 
-    if (this.isTerminal(state) && command.payload.type !== 'create-checkpoint') {
+    if (
+      this.isTerminal(state) &&
+      command.payload.type !== 'create-checkpoint' &&
+      command.payload.type !== 'create-branch'
+    ) {
       return this.reject(state, 'RUN_TERMINAL', 'Terminal runs cannot accept this command.');
     }
 
@@ -616,6 +677,16 @@ export class SimulationKernel<TState> {
         if (!pendingApproval) {
           return this.reject(state, 'APPROVAL_STALE', 'The approval no longer exists.');
         }
+        if (payload.decision === 'expired') {
+          append({
+            type: 'action.approval_expired',
+            source: eventSourceForActor(command.actor),
+            participantId: pendingApproval.participantId,
+            idempotencyKey: `${command.idempotencyKey}:expired`,
+            payload: { approvalId: pendingApproval.approvalId },
+          });
+          break;
+        }
         if (payload.decision === 'denied') {
           append({
             type: 'action.denied',
@@ -688,7 +759,13 @@ export class SimulationKernel<TState> {
           type: 'branch.created',
           source: eventSourceForActor(command.actor),
           idempotencyKey: 'branch.created',
-          payload: { name: payload.name },
+          payload: {
+            name: payload.name,
+            ...(payload.childRunId === undefined ? {} : { childRunId: payload.childRunId }),
+            ...(payload.branchFromSequence === undefined
+              ? {}
+              : { branchFromSequence: payload.branchFromSequence }),
+          },
         });
         break;
       }
@@ -819,6 +896,36 @@ export class SimulationKernel<TState> {
     }
 
     switch (event.type) {
+      case 'run.created': {
+        const payload = recordPayload(event.payload);
+        const inheritedState = payload.inheritedState;
+        if (
+          typeof inheritedState !== 'object' ||
+          inheritedState === null ||
+          Array.isArray(inheritedState)
+        ) {
+          const simulatedAt = readOptionalString(payload, 'simulatedAt');
+          return simulatedAt === undefined
+            ? next
+            : {
+                ...next,
+                run: {
+                  ...next.run,
+                  simulatedAt,
+                },
+              };
+        }
+        const inherited = cloneState(inheritedState as SimulationState<TState>);
+        return {
+          ...inherited,
+          run: {
+            ...next.run,
+            virtualTimeMinutes: inherited.run.virtualTimeMinutes,
+            simulatedAt: inherited.run.simulatedAt,
+          },
+          occurredEventTypes: incrementRecord(inherited.occurredEventTypes, event.type),
+        };
+      }
       case 'run.started':
         return this.updateRunStatus(next, 'running');
       case 'run.paused':
@@ -933,7 +1040,8 @@ export class SimulationKernel<TState> {
         };
       }
       case 'action.approved':
-      case 'action.denied': {
+      case 'action.denied':
+      case 'action.approval_expired': {
         const payload = recordPayload(event.payload);
         const approvalId = readString(payload, 'approvalId');
         const pendingApprovals = { ...next.pendingApprovals };

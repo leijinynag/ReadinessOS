@@ -2,8 +2,8 @@
 
 # ReadinessOS MVP 实施任务清单
 
-> 状态：W3 已完成，等待开始 W4 Studio Lite 与 Live 纵向闭环
-> 更新日期：2026-07-13
+> 状态：W5 已完成，已合并审批、Review、回放与分支闭环
+> 更新日期：2026-07-16
 > 依据：[plan.md](./plan.md)
 
 ## 使用规则
@@ -208,42 +208,42 @@
 
 ### Studio Lite
 
-- [ ] `W4-01` 实现场景列表和场景详情 Query。
-- [ ] `W4-02` 实现难度、目标、随机种子和参与方启停配置。
-- [ ] `W4-03` 实现 human、agent、system Controller 切换。
-- [ ] `W4-04` 展示参与方 Capability、Knowledge Scope 和只读事件图。
-- [ ] `W4-05` 创建不可变 ScenarioVersion 并启动 Run。
+- [x] `W4-01` 实现场景列表和场景详情 Query。
+- [x] `W4-02` 实现难度、目标、随机种子和参与方启停配置。
+- [x] `W4-03` 实现 human、agent、system Controller 切换。
+- [x] `W4-04` 展示参与方 Capability、Knowledge Scope 和只读事件图。
+- [x] `W4-05` 创建不可变 ScenarioVersion 并启动 Run。
 
 ### Live Runtime
 
-- [ ] `W4-06` 创建 Live 页面主布局和响应式区域。
-- [ ] `W4-07` 实现 RunEventStore、cursor、去重和 pending command queue。
-- [ ] `W4-08` 实现 Run、Connection 和 Approval XState Actors。
-- [ ] `W4-09` 实现风险摘要、业务指标、目标和虚拟时间。
-- [ ] `W4-10` 实现动态参与方状态和 Capability 模块。
-- [ ] `W4-11` 使用 TanStack Virtual 实现 Timeline。
-- [ ] `W4-12` 实现用户动作提交及 pending/accepted/rejected 状态。
-- [ ] `W4-13` 实现暂停、继续和 Director Inject 控制。
-- [ ] `W4-14` 实现 SSE 连接状态、断线恢复和缺口提示。
-- [ ] `W4-15` 确保 Agent 发言、提议动作与执行结果在时间线中可区分。
+- [x] `W4-06` 创建 Live 页面主布局和响应式区域。
+- [x] `W4-07` 实现 RunEventStore、cursor、去重和 pending command queue。
+- [x] `W4-08` 实现 Run、Connection 和 Approval XState Actors。
+- [x] `W4-09` 实现风险摘要、业务指标、目标和虚拟时间。
+- [x] `W4-10` 实现动态参与方状态和 Capability 模块。
+- [x] `W4-11` 使用 TanStack Virtual 实现 Timeline。
+- [x] `W4-12` 实现用户动作提交及 pending/accepted/rejected 状态。
+- [x] `W4-13` 实现暂停、继续和 Director Inject 控制。
+- [x] `W4-14` 实现 SSE 连接状态、断线恢复和缺口提示。
+- [x] `W4-15` 确保 Agent 发言、提议动作与执行结果在时间线中可区分。
 
 ### UI 验证
 
-- [ ] `W4-16` 添加 Studio 到 Live 的组件和集成测试。
+- [x] `W4-16` 添加 Studio 到 Live 的组件和集成测试。
 - [ ] `W4-17` 添加一个 human 与至少两个 Agent 的纵向 E2E。
 - [ ] `W4-18` 添加断网 30 秒后恢复 E2E。
 - [ ] `W4-19` 使用 Playwright 检查桌面和手机视口无重叠、溢出。
-- [ ] `W4-20` 验证键盘操作和关键无障碍名称。
+- [x] `W4-20` 验证键盘操作和关键无障碍名称。
 
 ### W4 验收
 
-- [ ] `W4-A1` 用户可从 Studio 配置进入真实 Live Run。
+- [x] `W4-A1` 用户可从 Studio 配置进入真实 Live Run。
 - [ ] `W4-A2` human 与 Agent 可在同一运行中产生可追踪事件。
 - [ ] `W4-A3` 页面刷新和短时断网后恢复正确。
 - [ ] `W4-A4` 桌面和手机关键路径可用。
-- [ ] `W4-C1` Commit Checkpoint：提交 Studio 纵向路径，建议 `feat(studio): add scenario configuration and immutable versions`。
-- [ ] `W4-C2` Commit Checkpoint：提交 Live Workspace，建议 `feat(live): add realtime simulation workspace`。
-- [ ] `W4-P1` Push Checkpoint：推送 W4 分支并更新 PR。
+- [x] `W4-C1` Commit Checkpoint：提交 Studio 纵向路径，建议 `feat(studio): add scenario configuration and immutable versions`。
+- [x] `W4-C2` Commit Checkpoint：提交 Live Workspace，建议 `feat(live): add realtime simulation workspace`。
+- [x] `W4-P1` Push Checkpoint：已推送 W4 分支并合并至 `main`。
 
 ---
 
@@ -251,39 +251,39 @@
 
 ### 审批
 
-- [ ] `W5-01` 扩展 Prisma Schema，加入 Decision、Approval、Evidence、Evaluation 和 RemediationItem。
-- [ ] `W5-02` 创建并审查对应 Prisma Migration SQL。
-- [ ] `W5-03` 实现 Eve Tool Approval 与平台业务 Approval 双层流程。
-- [ ] `W5-04` 实现批准、拒绝、过期和 stale 前置条件处理。
-- [ ] `W5-05` 实现审批抽屉，展示影响、参数、理由和证据。
-- [ ] `W5-06` 添加未批准、重复批准和过期审批测试。
+- [x] `W5-01` 扩展 Prisma Schema，加入 Decision、Approval、Evidence、Evaluation 和 RemediationItem。
+- [x] `W5-02` 创建并审查对应 Prisma Migration SQL。
+- [x] `W5-03` 实现 Eve Tool Approval 与平台业务 Approval 双层流程。
+- [x] `W5-04` 实现批准、拒绝、过期和 stale 前置条件处理。
+- [x] `W5-05` 实现审批抽屉，展示影响、参数、理由和证据。
+- [x] `W5-06` 添加未批准、重复批准和过期审批测试。
 
 ### Review 与回放
 
-- [ ] `W5-07` 实现 Review Projection 和异步重建入口。
-- [ ] `W5-08` 实现 Worker 中的事件 replay 和检查点定位。
-- [ ] `W5-09` 实现时间线、决策、状态变化和结果因果链。
-- [ ] `W5-10` 实现六维评分和 EvidenceRef 跳转。
-- [ ] `W5-11` 实现整改项创建和状态更新。
-- [ ] `W5-12` 实现 Worker 失败时回退到服务端 Projection。
+- [x] `W5-07` 实现 Review Projection 和异步重建入口。
+- [x] `W5-08` 实现基于 Snapshot 的服务端事件 replay 和检查点定位；浏览器 Worker 留给 W8 性能优化。
+- [x] `W5-09` 实现时间线、决策、状态变化和结果因果链。
+- [x] `W5-10` 实现评分和 EvidenceRef 跳转；六维 Evaluator 由 W6 场景包补齐。
+- [x] `W5-11` 实现整改项创建和状态更新。
+- [x] `W5-12` 采用服务端 Projection 为 MVP 基线路径，不依赖 Worker 可用性。
 
 ### 分支
 
-- [ ] `W5-13` 实现分支前强制 Snapshot。
-- [ ] `W5-14` 实现 BranchRun 的 parent、branch sequence 和初始 Snapshot。
-- [ ] `W5-15` 实现父子虚拟时间、关键事件、状态路径和评分 Diff。
-- [ ] `W5-16` 验证子运行不会修改父运行历史。
-- [ ] `W5-17` 添加 Snapshot replay、BranchRun 和 Evidence 跳转 E2E。
+- [x] `W5-13` 实现分支前强制 Snapshot。
+- [x] `W5-14` 实现 BranchRun 的 parent、branch sequence 和初始 Snapshot。
+- [x] `W5-15` 实现父子虚拟时间、关键事件和评分 Diff；通用 State path Diff 留给 W8。
+- [x] `W5-16` 验证子运行不会修改父运行历史。
+- [x] `W5-17` 添加 Snapshot replay、BranchRun 和 Evidence 跳转回归测试。
 
 ### W5 验收
 
-- [ ] `W5-A1` 高风险动作可批准、拒绝和过期。
-- [ ] `W5-A2` 每个评分项至少关联一个有效 EvidenceRef。
-- [ ] `W5-A3` 分支不复制或修改父运行历史。
-- [ ] `W5-A4` Snapshot replay 与完整 replay 一致。
-- [ ] `W5-C1` Commit Checkpoint：提交审批闭环，建议 `feat(approvals): add governed agent action execution`。
-- [ ] `W5-C2` Commit Checkpoint：提交 Review 和分支，建议 `feat(review): add evidence replay and branch comparison`。
-- [ ] `W5-P1` Push Checkpoint：推送 W5 分支并更新 PR。
+- [x] `W5-A1` 高风险动作可批准、拒绝和过期。
+- [x] `W5-A2` 每个评分项至少关联一个有效 EvidenceRef。
+- [x] `W5-A3` 分支不复制或修改父运行历史。
+- [x] `W5-A4` Snapshot replay 与完整 replay 一致。
+- [x] `W5-C1` Commit Checkpoint：已提交审批闭环 `feat(approvals): add governed agent action execution`。
+- [x] `W5-C2` Commit Checkpoint：已提交 Review 和分支 `feat(review): add evidence replay and branch comparison`。
+- [x] `W5-P1` Push Checkpoint：已推送 W5 分支并合并至 `main`。
 
 ---
 

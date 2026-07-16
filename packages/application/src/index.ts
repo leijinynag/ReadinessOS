@@ -51,7 +51,11 @@ export {
   RuntimeOutboxPublisher,
   streamEnvelopeSchema,
   type ClaimedOutboxMessage,
+  type ApprovalSummary,
+  type ReplaySummary,
+  type ReviewSummary,
   type CommandExecution,
+  type CreateBranchRequest,
   type CreateRunRequest,
   type OutboxMessageHandler,
   type RunScheduleClaimResult,
@@ -62,4 +66,5 @@ export {
   type SchedulerInstruction,
   type StreamEnvelope,
   createScheduledTickIdempotencyKey,
+  specializeScenarioPack,
 } from './runtime';

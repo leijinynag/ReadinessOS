@@ -18,5 +18,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
     include: ['./**/*.test.{ts,tsx}'],
+    // Eve 开发运行时会保存源码快照；这些快照不属于当前工作区测试输入。
+    exclude: ['**/node_modules/**', '**/.eve/**'],
   },
 });

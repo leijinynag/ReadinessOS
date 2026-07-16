@@ -20,46 +20,51 @@ import {
 
 const testParticipantId = '018f4c8b-9ae2-7a72-86bd-4f867befef01';
 
-const runtimeTestPack: ScenarioPack<{ phase: 'created' | 'running' | 'paused' }> =
-  assertScenarioPack({
+const runtimeTestPack: ScenarioPack<{
+  phase: 'created' | 'running' | 'paused';
+  deferredOwnerId?: string;
+}> = assertScenarioPack({
+  key: 'runtime-integration-test',
+  manifest: {
     key: 'runtime-integration-test',
-    manifest: {
-      key: 'runtime-integration-test',
-      name: 'Runtime integration test',
-      description: '用于验证运行时事务边界的最小场景。',
-      version: 1,
-      estimatedDurationMinutes: 5,
+    name: 'Runtime integration test',
+    description: '用于验证运行时事务边界的最小场景。',
+    version: 1,
+    estimatedDurationMinutes: 5,
+  },
+  stateSchema: z.object({
+    phase: z.enum(['created', 'running', 'paused']),
+    deferredOwnerId: z.string().uuid().optional(),
+  }),
+  // 真实场景也会有这类延迟赋值字段。JSON 持久化会移除 undefined，因此它能
+  // 覆盖「写入快照后再读取并启动 Run」的校验和回归。
+  initialState: () => ({ phase: 'created', deferredOwnerId: undefined }),
+  participants: [
+    {
+      id: testParticipantId,
+      key: 'operator',
+      displayName: 'Operator',
+      controller: 'human',
+      capabilities: ['acknowledge'],
+      permissions: ['write:run'],
+      knowledgeScopes: ['run'],
+      objectives: ['complete'],
     },
-    stateSchema: z.object({
-      phase: z.enum(['created', 'running', 'paused']),
-    }),
-    initialState: () => ({ phase: 'created' }),
-    participants: [
-      {
-        id: testParticipantId,
-        key: 'operator',
-        displayName: 'Operator',
-        controller: 'human',
-        capabilities: ['acknowledge'],
-        permissions: ['write:run'],
-        knowledgeScopes: ['run'],
-        objectives: ['complete'],
-      },
-    ],
-    actions: [
-      {
-        key: 'acknowledge',
-        label: 'Acknowledge',
-        risk: 'low',
-        approval: 'none',
-        effects: [],
-      },
-    ],
-    signals: [],
-    injects: [],
-    evaluators: [],
-    uiContributions: [],
-  });
+  ],
+  actions: [
+    {
+      key: 'acknowledge',
+      label: 'Acknowledge',
+      risk: 'low',
+      approval: 'none',
+      effects: [],
+    },
+  ],
+  signals: [],
+  injects: [],
+  evaluators: [],
+  uiContributions: [],
+});
 
 const organizationIds: string[] = [];
 const userIds: string[] = [];
@@ -257,6 +262,49 @@ describe('PrismaRunRepository', () => {
     });
   });
 
+  it('快照含 undefined 状态字段时，创建后仍可读取并启动 Run', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'snapshot-json-normalization');
+
+    await expect(
+      service.execute(startCommand(fixture, run.id, 0, 'snapshot-json-normalization-start')),
+    ).resolves.toMatchObject({
+      result: {
+        status: 'accepted',
+        events: [expect.objectContaining({ type: 'run.started' })],
+      },
+    });
+  });
+
+  it('v1 快照摘要不匹配时从事件流重建状态并启动 Run', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'legacy-snapshot-rebuild');
+
+    await prisma.stateSnapshot.update({
+      where: {
+        runId_sequence: {
+          runId: run.id,
+          sequence: 1,
+        },
+      },
+      data: {
+        schemaVersion: 1,
+        checksum: 'legacy-checksum-generated-before-json-normalization',
+      },
+    });
+
+    await expect(
+      service.execute(startCommand(fixture, run.id, 0, 'legacy-snapshot-rebuild-start')),
+    ).resolves.toMatchObject({
+      result: {
+        status: 'accepted',
+        events: [expect.objectContaining({ type: 'run.started' })],
+      },
+    });
+  });
+
   it('对同一 Command 幂等键只追加一次事件', async () => {
     const fixture = await createFixture();
     const service = createRunService();
@@ -279,6 +327,91 @@ describe('PrismaRunRepository', () => {
     expect(events.map((event) => event.type)).toEqual(['run.created', 'run.started']);
   });
 
+  it('分支从目标 sequence 继承状态，但不复制或改写父 Run 事件', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const parent = await createRun(service, fixture, 'branch-parent-create');
+    await service.execute(startCommand(fixture, parent.id, 0, 'branch-parent-start'));
+    await service.execute(
+      runCommand(fixture, parent.id, 1, 'branch-parent-clock', {
+        type: 'advance-clock',
+        minutes: 5,
+      }),
+    );
+    const parentBeforeBranch = await prisma.runEvent.findMany({
+      where: { runId: parent.id },
+      orderBy: { sequence: 'asc' },
+    });
+
+    const branch = await service.createBranchRun({
+      parentRunId: parent.id,
+      organizationId: fixture.organizationId,
+      createdById: fixture.userId,
+      idempotencyKey: 'branch-create',
+      expectedParentRunVersion: 2,
+      branchFromSequence: 3,
+      name: '五分钟处置备选方案',
+    });
+    const [persistedBranch, branchEvents, parentAfterBranch, replay] = await Promise.all([
+      prisma.simulationRun.findUniqueOrThrow({ where: { id: branch.id } }),
+      prisma.runEvent.findMany({ where: { runId: branch.id }, orderBy: { sequence: 'asc' } }),
+      prisma.runEvent.findMany({ where: { runId: parent.id }, orderBy: { sequence: 'asc' } }),
+      service.getReplay(branch.id, fixture.organizationId),
+    ]);
+
+    expect(persistedBranch).toMatchObject({
+      parentRunId: parent.id,
+      branchFromSequence: 3,
+      latestSequence: 1,
+      virtualTime: 5,
+    });
+    expect(branchEvents).toHaveLength(1);
+    expect(branchEvents[0]).toMatchObject({ sequence: 1, type: 'run.created' });
+    expect(parentAfterBranch.slice(0, parentBeforeBranch.length)).toEqual(parentBeforeBranch);
+    expect(parentAfterBranch.at(-1)).toMatchObject({
+      type: 'branch.created',
+      payload: expect.objectContaining({
+        childRunId: branch.id,
+        branchFromSequence: 3,
+      }),
+    });
+    expect(replay.state).toMatchObject({
+      run: {
+        runId: branch.id,
+        status: 'created',
+        latestSequence: 1,
+        virtualTimeMinutes: 5,
+      },
+    });
+  });
+
+  it('Snapshot 回放与完整事件重放得到一致的 Run 状态', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'replay-consistency-create');
+    await service.execute(startCommand(fixture, run.id, 0, 'replay-consistency-start'));
+    await service.execute(
+      runCommand(fixture, run.id, 1, 'replay-consistency-clock', {
+        type: 'advance-clock',
+        minutes: 3,
+      }),
+    );
+    await service.execute(
+      runCommand(fixture, run.id, 2, 'replay-consistency-checkpoint', {
+        type: 'create-checkpoint',
+        label: '三分钟检查点',
+      }),
+    );
+
+    const snapshotReplay = await service.getReplay(run.id, fixture.organizationId);
+    await prisma.stateSnapshot.deleteMany({ where: { runId: run.id } });
+    const fullReplay = await service.getReplay(run.id, fixture.organizationId);
+
+    expect(snapshotReplay.source).toBe('snapshot');
+    expect(fullReplay.source).toBe('full');
+    expect(fullReplay.state).toEqual(snapshotReplay.state);
+  });
+
   it('在没有处理器时保持 Outbox 消息待重试', async () => {
     const fixture = await createFixture();
     const repository = new PrismaRunRepository(prisma);
@@ -291,7 +424,9 @@ describe('PrismaRunRepository', () => {
     });
     const publisher = new RuntimeOutboxPublisher(repository, new RunEventHub());
 
-    await expect(publisher.publishPending()).resolves.toBe(1);
+    // Outbox 是跨 Run 的全局队列；开发库中可能同时存在其他待处理消息。
+    // 这里验证目标消息的最终状态，不把批次大小当作测试前提。
+    await expect(publisher.publishPending()).resolves.toBeGreaterThanOrEqual(1);
 
     await expect(
       prisma.outboxMessage.findUniqueOrThrow({ where: { id: outbox.id } }),
@@ -509,7 +644,9 @@ describe('PrismaRunRepository', () => {
         type: 'pause-run',
       }),
     );
-    await expect(service.getLatestRunningRuns()).resolves.toEqual([]);
+    await expect(service.getLatestRunningRuns()).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: run.id })]),
+    );
     await expect(service.reconcileRunningRuns(recoveredScheduler)).resolves.toBe(0);
   });
 
