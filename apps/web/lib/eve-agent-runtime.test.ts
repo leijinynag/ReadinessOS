@@ -44,6 +44,180 @@ describe('EveAgentRuntime contract', () => {
     await expect(prisma.runEvent.count({ where: { runId: fixture.runId } })).resolves.toBe(0);
   });
 
+  it('记录 Agent Turn、延迟和 Eve 返回的 Token 与费用', async () => {
+    const fixture = await createAgentFixture();
+    const proposal = {
+      participantId: fixture.participantId,
+      actionType: 'publish_status',
+      parameters: {},
+      rationale: 'Update customers.',
+      evidenceRefs: [],
+      confidence: 0.9,
+      clientRequestId: 'request-usage',
+    };
+    const runtime = new EveAgentRuntime(
+      fakeSessions({
+        status: 'completed',
+        data: proposal,
+        events: [
+          {
+            type: 'step.completed',
+            data: {
+              usage: {
+                inputTokens: 120,
+                outputTokens: 45,
+                cacheReadTokens: 20,
+                cacheWriteTokens: 10,
+                costUsd: 0.0012,
+              },
+            },
+          },
+          {
+            type: 'step.completed',
+            data: { usage: { inputTokens: 30, outputTokens: 5, costUsd: 0.0003 } },
+          },
+        ],
+      }),
+      new PrismaAgentRuntimeStore(prisma),
+    );
+    const handle = await runtime.start({
+      runParticipantId: fixture.participantId,
+      agentKey: 'director',
+    });
+
+    await runtime.sendObservation(handle, observation(fixture));
+
+    const ledger = await prisma.usageLedger.findMany({
+      where: { runId: fixture.runId },
+      select: { category: true, quantity: true, unit: true, metadata: true },
+    });
+    expect(ledger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ category: 'agent_turns', quantity: 1, unit: 'turn' }),
+        expect.objectContaining({ category: 'agent_input_tokens', quantity: 150, unit: 'token' }),
+        expect.objectContaining({ category: 'agent_output_tokens', quantity: 50, unit: 'token' }),
+        expect.objectContaining({
+          category: 'agent_cache_read_tokens',
+          quantity: 20,
+          unit: 'token',
+        }),
+        expect.objectContaining({
+          category: 'agent_cache_write_tokens',
+          quantity: 10,
+          unit: 'token',
+        }),
+        expect.objectContaining({
+          category: 'agent_cost_micro_usd',
+          quantity: 1500,
+          unit: 'micro_usd',
+        }),
+        expect.objectContaining({ category: 'agent_latency_ms', unit: 'ms' }),
+      ]),
+    );
+    const latency = ledger.find((entry) => entry.category === 'agent_latency_ms');
+    expect(latency?.quantity).toBeGreaterThanOrEqual(0);
+    const turn = ledger.find((entry) => entry.category === 'agent_turns');
+    expect(turn?.metadata).toMatchObject({
+      provider: 'eve',
+      agentKey: 'director',
+      completedSteps: 2,
+    });
+  });
+
+  it('缺少 Provider 用量时仍记录 Agent Turn 和延迟，且不伪造 Token 或费用', async () => {
+    const fixture = await createAgentFixture();
+    const runtime = new EveAgentRuntime(
+      fakeSessions({
+        status: 'completed',
+        data: {
+          participantId: fixture.participantId,
+          actionType: 'publish_status',
+          parameters: {},
+          rationale: 'Update customers.',
+          evidenceRefs: [],
+          confidence: 0.9,
+          clientRequestId: 'request-no-usage',
+        },
+      }),
+      new PrismaAgentRuntimeStore(prisma),
+    );
+    const handle = await runtime.start({
+      runParticipantId: fixture.participantId,
+      agentKey: 'director',
+    });
+
+    await runtime.sendObservation(handle, observation(fixture));
+
+    const categories = (
+      await prisma.usageLedger.findMany({
+        where: { runId: fixture.runId },
+        select: { category: true },
+      })
+    ).map((entry) => entry.category);
+    expect(categories).toEqual(expect.arrayContaining(['agent_turns', 'agent_latency_ms']));
+    expect(categories).not.toEqual(
+      expect.arrayContaining(['agent_input_tokens', 'agent_output_tokens', 'agent_cost_micro_usd']),
+    );
+  });
+
+  it('重放同一 Turn 时不会重复累计用量账本', async () => {
+    const fixture = await createAgentFixture();
+    const store = new PrismaAgentRuntimeStore(prisma);
+    const handle = await store.loadOrCreate(fixture.participantId, 'director');
+    const telemetry = {
+      elapsedMilliseconds: 12,
+      usage: {
+        completedSteps: 1,
+        inputTokens: 100,
+        outputTokens: 20,
+        costUsd: 0.001,
+      },
+    };
+
+    await store.persist(
+      handle,
+      { sessionId: 'session-1', streamIndex: 1 },
+      'completed',
+      [{ type: 'step.completed', data: {} }],
+      undefined,
+      telemetry,
+    );
+    await store.persist(
+      handle,
+      { sessionId: 'session-1', streamIndex: 1 },
+      'completed',
+      [{ type: 'step.completed', data: {} }],
+      undefined,
+      telemetry,
+    );
+
+    await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(1);
+    await expect(prisma.usageLedger.count({ where: { runId: fixture.runId } })).resolves.toBe(5);
+  });
+
+  it('Provider 未返回流事件时仍通过 Turn 锚点记录遥测', async () => {
+    const fixture = await createAgentFixture();
+    const store = new PrismaAgentRuntimeStore(prisma);
+    const handle = await store.loadOrCreate(fixture.participantId, 'director');
+
+    await store.persist(
+      handle,
+      { sessionId: 'session-1', streamIndex: 1 },
+      'completed',
+      [],
+      undefined,
+      {
+        elapsedMilliseconds: 12,
+        usage: { completedSteps: 0 },
+      },
+    );
+
+    await expect(
+      prisma.agentTrace.findFirstOrThrow({ where: { runId: fixture.runId } }),
+    ).resolves.toMatchObject({ eventType: 'adapter.turn_completed' });
+    await expect(prisma.usageLedger.count({ where: { runId: fixture.runId } })).resolves.toBe(2);
+  });
+
   it('send exception 会持久化 failed trace 且不改变 Run', async () => {
     const fixture = await createAgentFixture();
     const before = await readWorldPersistence(fixture.runId);
@@ -238,6 +412,7 @@ function fakeSessions(input: {
   status: 'completed' | 'failed';
   data: unknown;
   eventType?: string;
+  events?: Array<{ type: string; data?: unknown }>;
 }): EveSessionFactory {
   return {
     session() {
@@ -249,7 +424,9 @@ function fakeSessions(input: {
               return {
                 data: input.data as T,
                 message: undefined,
-                events: [{ type: input.eventType ?? 'session.completed', data: {} }] as never[],
+                events: (input.events ?? [
+                  { type: input.eventType ?? 'session.completed', data: {} },
+                ]) as never[],
                 inputRequests: [],
                 sessionId: 'session-1',
                 status: input.status,

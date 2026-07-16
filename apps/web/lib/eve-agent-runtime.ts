@@ -33,6 +33,20 @@ export interface EveSessionFactory {
   session(state?: SessionState): EveSessionLike;
 }
 
+interface AgentTurnTelemetry {
+  readonly elapsedMilliseconds: number;
+  readonly usage: AgentUsage;
+}
+
+interface AgentUsage {
+  readonly costUsd?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly completedSteps: number;
+}
+
 export class PrismaAgentRuntimeStore {
   constructor(private readonly client: PrismaClient) {}
 
@@ -69,15 +83,24 @@ export class PrismaAgentRuntimeStore {
     status: AgentRuntimeStatus,
     events: readonly { type: string; data?: unknown }[],
     validationContext?: ProposedActionValidationContext,
+    telemetry?: AgentTurnTelemetry,
   ): Promise<AgentHandle> {
     const participant = await this.client.runParticipant.findUniqueOrThrow({
       where: { id: handle.runParticipantId },
-      select: { runId: true },
+      select: {
+        runId: true,
+        run: { select: { organizationId: true } },
+      },
     });
     return this.client.$transaction(async (tx) => {
       const sessionIdentity = state.sessionId ?? `pending:${handle.sessionId ?? handle.agentKey}`;
-      await tx.agentTrace.createMany({
-        data: events.map((event, offset) => {
+      // Provider 未返回流事件时补充 Turn 锚点，保证遥测仍可被可靠地幂等记账。
+      const traceEvents =
+        events.length > 0 || telemetry === undefined
+          ? events
+          : [{ type: 'adapter.turn_completed', data: {} }];
+      const traceWrite = await tx.agentTrace.createMany({
+        data: traceEvents.map((event, offset) => {
           const streamIndex = handle.streamIndex + offset;
           return {
             runId: participant.runId,
@@ -95,6 +118,20 @@ export class PrismaAgentRuntimeStore {
         }),
         skipDuplicates: true,
       });
+      // Trace 是当前 Turn 的幂等锚点，只有首次写入时才累计账本，避免重放重复计费。
+      if (telemetry !== undefined && traceWrite.count > 0) {
+        await tx.usageLedger.createMany({
+          data: createUsageLedgerEntries({
+            organizationId: participant.run.organizationId,
+            runId: participant.runId,
+            runParticipantId: handle.runParticipantId,
+            agentKey: handle.agentKey,
+            sessionId: state.sessionId,
+            status,
+            telemetry,
+          }),
+        });
+      }
       const currentMetadata = await tx.agentSessionLink.findUniqueOrThrow({
         where: {
           runParticipantId_provider_agentKey: {
@@ -208,6 +245,7 @@ export class EveAgentRuntime implements AgentRuntime {
         : { continuationToken: handle.continuationToken }),
     });
     let response: { result(): Promise<MessageResult<ProposedAction>> };
+    const startedAt = performance.now();
     try {
       response = await session.send(input);
     } catch (error) {
@@ -217,6 +255,7 @@ export class EveAgentRuntime implements AgentRuntime {
         'adapter.send_failed',
         error,
         validationContext,
+        createAgentTurnTelemetry(startedAt, []),
       );
       throw error;
     }
@@ -230,6 +269,7 @@ export class EveAgentRuntime implements AgentRuntime {
         'adapter.result_failed',
         error,
         validationContext,
+        createAgentTurnTelemetry(startedAt, []),
       );
       throw error;
     }
@@ -265,6 +305,7 @@ export class EveAgentRuntime implements AgentRuntime {
       persistedStatus,
       events,
       validationContext,
+      createAgentTurnTelemetry(startedAt, result.events),
     );
     if (validationError !== undefined) {
       throw validationError;
@@ -286,6 +327,7 @@ export class EveAgentRuntime implements AgentRuntime {
     eventType: 'adapter.send_failed' | 'adapter.result_failed',
     error: unknown,
     validationContext: ProposedActionValidationContext,
+    telemetry: AgentTurnTelemetry,
   ): Promise<void> {
     try {
       await this.store.persist(
@@ -299,6 +341,7 @@ export class EveAgentRuntime implements AgentRuntime {
           },
         ],
         validationContext,
+        telemetry,
       );
     } catch {
       // 失败诊断不能替换原始 transport 异常；调用方仍收到真正根因。
@@ -357,4 +400,142 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function createAgentTurnTelemetry(
+  startedAt: number,
+  events: readonly { type: string; data?: unknown }[],
+): AgentTurnTelemetry {
+  return {
+    elapsedMilliseconds: Math.max(0, Math.round(performance.now() - startedAt)),
+    usage: collectAgentUsage(events),
+  };
+}
+
+function collectAgentUsage(events: readonly { type: string; data?: unknown }[]): AgentUsage {
+  const totals = {
+    costUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    completedSteps: 0,
+  };
+  const reported = {
+    costUsd: false,
+    inputTokens: false,
+    outputTokens: false,
+    cacheReadTokens: false,
+    cacheWriteTokens: false,
+  };
+
+  for (const event of events) {
+    if (event.type !== 'step.completed') continue;
+    totals.completedSteps += 1;
+    const usage = objectValue(objectValue(event.data).usage);
+    addUsageMetric(totals, reported, 'costUsd', usage.costUsd);
+    addUsageMetric(totals, reported, 'inputTokens', usage.inputTokens);
+    addUsageMetric(totals, reported, 'outputTokens', usage.outputTokens);
+    addUsageMetric(totals, reported, 'cacheReadTokens', usage.cacheReadTokens);
+    addUsageMetric(totals, reported, 'cacheWriteTokens', usage.cacheWriteTokens);
+  }
+
+  return {
+    completedSteps: totals.completedSteps,
+    ...(reported.costUsd ? { costUsd: totals.costUsd } : {}),
+    ...(reported.inputTokens ? { inputTokens: totals.inputTokens } : {}),
+    ...(reported.outputTokens ? { outputTokens: totals.outputTokens } : {}),
+    ...(reported.cacheReadTokens ? { cacheReadTokens: totals.cacheReadTokens } : {}),
+    ...(reported.cacheWriteTokens ? { cacheWriteTokens: totals.cacheWriteTokens } : {}),
+  };
+}
+
+function addUsageMetric(
+  totals: Record<keyof Omit<AgentUsage, 'completedSteps'> | 'completedSteps', number>,
+  reported: Record<keyof Omit<AgentUsage, 'completedSteps'>, boolean>,
+  key: keyof Omit<AgentUsage, 'completedSteps'>,
+  value: unknown,
+): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return;
+  totals[key] += value;
+  reported[key] = true;
+}
+
+function createUsageLedgerEntries(input: {
+  organizationId: string;
+  runId: string;
+  runParticipantId: string;
+  agentKey: string;
+  sessionId: string | undefined;
+  status: AgentRuntimeStatus;
+  telemetry: AgentTurnTelemetry;
+}): Prisma.UsageLedgerCreateManyInput[] {
+  const common = {
+    organizationId: input.organizationId,
+    runId: input.runId,
+    runParticipantId: input.runParticipantId,
+    metadata: json({
+      provider: 'eve',
+      agentKey: input.agentKey,
+      sessionId: input.sessionId ?? null,
+      status: input.status,
+      completedSteps: input.telemetry.usage.completedSteps,
+    }),
+  };
+  const entries: Prisma.UsageLedgerCreateManyInput[] = [
+    { ...common, category: 'agent_turns', quantity: 1, unit: 'turn' },
+    {
+      ...common,
+      category: 'agent_latency_ms',
+      quantity: toLedgerQuantity(input.telemetry.elapsedMilliseconds),
+      unit: 'ms',
+    },
+  ];
+  addLedgerEntry(entries, common, 'agent_input_tokens', input.telemetry.usage.inputTokens, 'token');
+  addLedgerEntry(
+    entries,
+    common,
+    'agent_output_tokens',
+    input.telemetry.usage.outputTokens,
+    'token',
+  );
+  addLedgerEntry(
+    entries,
+    common,
+    'agent_cache_read_tokens',
+    input.telemetry.usage.cacheReadTokens,
+    'token',
+  );
+  addLedgerEntry(
+    entries,
+    common,
+    'agent_cache_write_tokens',
+    input.telemetry.usage.cacheWriteTokens,
+    'token',
+  );
+  if (input.telemetry.usage.costUsd !== undefined) {
+    addLedgerEntry(
+      entries,
+      common,
+      'agent_cost_micro_usd',
+      input.telemetry.usage.costUsd * 1_000_000,
+      'micro_usd',
+    );
+  }
+  return entries;
+}
+
+function addLedgerEntry(
+  entries: Prisma.UsageLedgerCreateManyInput[],
+  common: Omit<Prisma.UsageLedgerCreateManyInput, 'category' | 'quantity' | 'unit'>,
+  category: string,
+  quantity: number | undefined,
+  unit: string,
+): void {
+  if (quantity === undefined) return;
+  entries.push({ ...common, category, quantity: toLedgerQuantity(quantity), unit });
+}
+
+function toLedgerQuantity(value: number): number {
+  return Math.max(0, Math.min(2_147_483_647, Math.round(value)));
 }

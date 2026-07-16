@@ -317,7 +317,7 @@
 - [x] `W6-A3` Agent 权限和审批 Eval 达到约定阈值。
 - [x] `W6-A4` 单场费用和运行时间在预算内（运行时记录真实费用与延迟，测试验证固定用量聚合）。
 - [x] `W6-C1` Commit Checkpoint：提交完整主场景，建议 `feat(scenarios): complete SaaS incident simulation pack`。
-- [ ] `W6-C2` Commit Checkpoint：提交 Agent Eval，建议 `test(agent): add incident safety and quality eval suite`。
+- [x] `W6-C2` Commit Checkpoint：提交 Agent Eval，建议 `test(agent): add incident safety and quality eval suite`。
 - [ ] `W6-P1` Push Checkpoint：推送 W6 分支并更新 PR。
 
 ---
