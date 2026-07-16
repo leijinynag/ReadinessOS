@@ -1,0 +1,41 @@
+apps/web/app/(app)/runs/[runId]/live-workspace-client.test.tsx
+  s_b45c549f48cfe4::t_ecb3a97de77973 41-60,91-104
+apps/web/app/(app)/runs/[runId]/live-workspace-client.tsx
+  s_b45c549f48cfe4::t_af17cdbd3611d0 39-55,102,151-159,192,196,243-245,284,288,397-409,472,701-758,913-922
+apps/web/app/api/runs/[runId]/approvals/[approvalId]/route.test.ts
+  s_b45c549f48cfe4::t_3161cf1ffadf73 1-79
+apps/web/app/api/runs/[runId]/approvals/[approvalId]/route.ts
+  s_b45c549f48cfe4::t_c9e992b757d1ab 1-49
+apps/web/app/api/runs/[runId]/approvals/route.ts
+  s_b45c549f48cfe4::t_cae97ec8a12ce5 1-25
+apps/web/app/globals.css
+  s_b45c549f48cfe4::t_07bc28b49132c5 1352-1353,1489-1547
+packages/application/src/index.ts
+  s_b45c549f48cfe4::t_8214f8d2bbd8f4 54
+packages/application/src/runtime.ts
+  s_b45c549f48cfe4::t_f3f92c212e7b91 19,30,98-118,592-650,1080-1081,1169-1299,1359-1396,1443-1446,1859-1872
+packages/database/prisma/migrations/20260716103000_add_w5_governance_review/migration.sql
+  s_b45c549f48cfe4::t_47a7ae7008d3dc 1-123
+packages/database/prisma/schema.prisma
+  s_b45c549f48cfe4::t_4c02981c4fd439 53-66,182-186,292-395
+packages/simulation-kernel/src/index.ts
+  s_b45c549f48cfe4::t_6599149f71f924 183,619-628,946-947
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "14b8777c36c2ea467d3205a0ea1027160f9b7133",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
