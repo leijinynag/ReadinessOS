@@ -243,7 +243,7 @@
 - [ ] `W4-A4` 桌面和手机关键路径可用。
 - [x] `W4-C1` Commit Checkpoint：提交 Studio 纵向路径，建议 `feat(studio): add scenario configuration and immutable versions`。
 - [x] `W4-C2` Commit Checkpoint：提交 Live Workspace，建议 `feat(live): add realtime simulation workspace`。
-- [ ] `W4-P1` Push Checkpoint：推送 W4 分支并更新 PR。
+- [x] `W4-P1` Push Checkpoint：推送 W4 分支并更新 PR。
 
 ---
 
