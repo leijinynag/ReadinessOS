@@ -164,25 +164,25 @@ model SimulationRun {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scenarioVersion ScenarioVersion        @relation(fields: [scenarioVersionId], references: [id], onDelete: Restrict)
-  parentRun       SimulationRun?         @relation("RunBranches", fields: [parentRunId], references: [id], onDelete: Restrict)
-  branches        SimulationRun[]        @relation("RunBranches")
-  createdBy       User                   @relation("RunCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  participants    RunParticipant[]
-  events          RunEvent[]
-  snapshots       StateSnapshot[]
-  checkpoints     Checkpoint[]
-  overview        RunOverviewProjection?
-  timeline        TimelineProjection[]
-  outboxMessages  OutboxMessage[]
-  agentTraces     AgentTrace[]
-  usageLedger     UsageLedger[]
-  scheduleLease   RunScheduleLease?
-  approvals       Approval[]
-  decisions       Decision[]
-  evidences       Evidence[]
-  evaluations     Evaluation[]
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scenarioVersion  ScenarioVersion        @relation(fields: [scenarioVersionId], references: [id], onDelete: Restrict)
+  parentRun        SimulationRun?         @relation("RunBranches", fields: [parentRunId], references: [id], onDelete: Restrict)
+  branches         SimulationRun[]        @relation("RunBranches")
+  createdBy        User                   @relation("RunCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  participants     RunParticipant[]
+  events           RunEvent[]
+  snapshots        StateSnapshot[]
+  checkpoints      Checkpoint[]
+  overview         RunOverviewProjection?
+  timeline         TimelineProjection[]
+  outboxMessages   OutboxMessage[]
+  agentTraces      AgentTrace[]
+  usageLedger      UsageLedger[]
+  scheduleLease    RunScheduleLease?
+  approvals        Approval[]
+  decisions        Decision[]
+  evidences        Evidence[]
+  evaluations      Evaluation[]
   remediationItems RemediationItem[]
 
   @@unique([organizationId, createdById, createIdempotencyKey])
@@ -316,15 +316,15 @@ model Approval {
 }
 
 model Decision {
-  id          String   @id @default(uuid()) @db.Uuid
-  runId       String   @map("run_id") @db.Uuid
-  approvalId  String?  @unique @map("approval_id") @db.Uuid
-  sequence    Int
-  decision    String
-  actorId     String?  @map("actor_id") @db.Uuid
-  actorName   String?  @map("actor_name")
-  rationale   String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid()) @db.Uuid
+  runId      String   @map("run_id") @db.Uuid
+  approvalId String?  @unique @map("approval_id") @db.Uuid
+  sequence   Int
+  decision   String
+  actorId    String?  @map("actor_id") @db.Uuid
+  actorName  String?  @map("actor_name")
+  rationale  String?
+  createdAt  DateTime @default(now()) @map("created_at")
 
   run      SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   approval Approval?     @relation(fields: [approvalId], references: [id], onDelete: SetNull)
@@ -364,8 +364,8 @@ model Evidence {
   createdAt    DateTime @default(now()) @map("created_at")
 
   run        SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  evaluation Evaluation?    @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
-  approval   Approval?      @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  evaluation Evaluation?   @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  approval   Approval?     @relation(fields: [approvalId], references: [id], onDelete: Cascade)
 
   @@unique([evaluationId, sequence, eventType])
   @@unique([approvalId, sequence, eventType])
@@ -387,7 +387,7 @@ model RemediationItem {
   updatedAt    DateTime          @updatedAt @map("updated_at")
 
   run        SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  evaluation Evaluation?    @relation(fields: [evaluationId], references: [id], onDelete: SetNull)
+  evaluation Evaluation?   @relation(fields: [evaluationId], references: [id], onDelete: SetNull)
 
   @@index([runId, status, updatedAt(sort: Desc)])
   @@map("remediation_items")
