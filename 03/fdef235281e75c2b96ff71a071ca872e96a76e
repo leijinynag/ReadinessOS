@@ -1,0 +1,27 @@
+apps/web/app/(app)/runs/[runId]/live-workspace-client.tsx
+  s_b45c549f48cfe4::t_23499b43e97ce4 287,722-723
+apps/web/app/(app)/runs/[runId]/review/review-workspace.tsx
+  s_b45c549f48cfe4::t_de306e164d258b 148-151,155-157,174-178,193-195,276-280
+apps/web/app/api/runs/[runId]/approvals/[approvalId]/route.test.ts
+  s_b45c549f48cfe4::t_369d5305cadbfb 16-21
+packages/application/src/runtime.ts
+  s_b45c549f48cfe4::t_e7fad6a6a631f1 618-622,689-692,911-952,1021-1024,1062-1069,1562-1574,1758-1760
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "03fdef235281e75c2b96ff71a071ca872e96a76e",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
