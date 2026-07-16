@@ -1,0 +1,109 @@
+.env.example
+  s_b45c549f48cfe4::t_0552cecb586623 14-26
+README.md
+  s_b45c549f48cfe4::t_20a82f9800ce6a 23-52,72-76
+apps/web/agent/sandbox.ts
+  s_b45c549f48cfe4::t_b0c2fef6942f8b 1-13
+apps/web/app/(app)/runs/[runId]/live-workspace-client.test.tsx
+  s_b45c549f48cfe4::t_0bac675274e0eb 151
+apps/web/app/(app)/scenarios/[scenarioId]/page.test.tsx
+  s_b45c549f48cfe4::t_56dc8046f379e8 17-21,84,91-95
+apps/web/app/(app)/scenarios/[scenarioId]/page.tsx
+  s_b45c549f48cfe4::t_c463b148558c82 4,20,25
+apps/web/app/(app)/scenarios/page.test.tsx
+  s_b45c549f48cfe4::t_775c721e584206 16-17
+apps/web/app/(app)/scenarios/page.tsx
+  s_b45c549f48cfe4::t_f95f6a61f0d771 5,14,18,23
+apps/web/app/(auth)/login/actions.ts
+  s_b45c549f48cfe4::t_adcf19ae818859 4,7,24-39
+apps/web/app/(auth)/login/page.tsx
+  s_b45c549f48cfe4::t_13908298dc11d1 4,57-63
+apps/web/app/api/runs/[runId]/actions/route.ts
+  s_b45c549f48cfe4::t_878a39a2a75a81 13,28,34
+apps/web/app/api/runs/[runId]/approvals/[approvalId]/route.ts
+  s_b45c549f48cfe4::t_95a314e4739c04 13,26,32
+apps/web/app/api/runs/[runId]/branches/route.test.ts
+  s_b45c549f48cfe4::t_1397b3fbcb998b 32-38,90-114
+apps/web/app/api/runs/[runId]/branches/route.ts
+  s_b45c549f48cfe4::t_0b077dd42e236a 12,26,30-31
+apps/web/app/api/runs/[runId]/inject/route.test.ts
+  s_b45c549f48cfe4::t_f56ac96171fd92 38-44,82-95
+apps/web/app/api/runs/[runId]/inject/route.ts
+  s_b45c549f48cfe4::t_cf762af634366d 13,30,37-38
+apps/web/app/api/runs/[runId]/participants/[participantId]/agent-turn/route.test.ts
+  s_b45c549f48cfe4::t_3c6fc15678ccb8 23-27,116-144
+apps/web/app/api/runs/[runId]/participants/[participantId]/agent-turn/route.ts
+  s_b45c549f48cfe4::t_59fea52ec63b34 7,32,35-37
+apps/web/app/api/runs/[runId]/pause/route.ts
+  s_b45c549f48cfe4::t_eb985061bd539d 13,23,29
+apps/web/app/api/runs/[runId]/remediations/[itemId]/route.ts
+  s_b45c549f48cfe4::t_e61e543a8b7dd6 7,20,23-24
+apps/web/app/api/runs/[runId]/remediations/route.ts
+  s_b45c549f48cfe4::t_dd973a40a0d458 7,23,26-27
+apps/web/app/api/runs/[runId]/resume/route.ts
+  s_b45c549f48cfe4::t_6ded5a67d998aa 12,21,27
+apps/web/app/api/runs/[runId]/start/route.ts
+  s_b45c549f48cfe4::t_18ea2b67de19df 12,21,27
+apps/web/app/api/runs/route.ts
+  s_b45c549f48cfe4::t_7b21cc7ebc6c6b 2,18-24
+apps/web/app/api/scenarios/[scenarioId]/runs/route.test.ts
+  s_b45c549f48cfe4::t_17aa45d1e06909 11-15,35-36,92-93,95,98-116
+apps/web/app/globals.css
+  s_b45c549f48cfe4::t_0a5ca1c4b9f5f1 1652-1665,2011-2021
+apps/web/auth.ts
+  s_b45c549f48cfe4::t_2526c090e6ae2c 11-13,65-97
+apps/web/instrumentation.ts
+  s_b45c549f48cfe4::t_e19cecbef4d804 4
+apps/web/lib/agent-turn-runtime.ts
+  s_b45c549f48cfe4::t_86e3ba467ea941 7-8,21-30,39,44
+apps/web/lib/api-response.ts
+  s_b45c549f48cfe4::t_f077ad0101f111 4,43
+apps/web/lib/auth-session.ts
+  s_b45c549f48cfe4::t_fc3fa2a94f9477 14-15,17-24,27-29,35-37,43-54
+apps/web/lib/env.ts
+  s_b45c549f48cfe4::t_ba26de001525dc 12-25,45-53
+apps/web/lib/eve-agent-runtime.test.ts
+  s_b45c549f48cfe4::t_287ac0fe45b800 79-80,116-117
+apps/web/lib/guest-demo.ts
+  s_b45c549f48cfe4::t_03e64ffd490b89 1-130
+apps/web/lib/observability.ts
+  s_b45c549f48cfe4::t_5c3c02d73ae65e 1-72
+apps/web/lib/release-policy.test.ts
+  s_b45c549f48cfe4::t_54cab3c724319e 1-66
+apps/web/lib/run-runtime.ts
+  s_b45c549f48cfe4::t_5d66bc8520cd07 10,37-39,41-45,47
+apps/web/lib/studio-run-service.ts
+  s_b45c549f48cfe4::t_31e06de0e4bff9 42,73
+apps/web/package.json
+  s_b45c549f48cfe4::t_154548cfafbdb3 15
+apps/web/workflows/reconcile-runs.ts
+  s_b45c549f48cfe4::t_820136adaf4a81 3,17-21
+apps/web/workflows/run-tick.ts
+  s_b45c549f48cfe4::t_32d8c2b8c48bef 3,60-64,70-74,84-101
+docs/environment.md
+  s_b45c549f48cfe4::t_644f55e3110f57 3,8-9
+packages/application/src/index.ts
+  s_b45c549f48cfe4::t_accf38c9dbcc88 15-16
+packages/application/src/runtime.ts
+  s_b45c549f48cfe4::t_b44ac3d5a04fdc 93,203,468,612,757,846,1211,1215-1220,2315,2472,2490
+packages/database/prisma/migrations/20260716150000_add_w8_release_guards/migration.sql
+  s_b45c549f48cfe4::t_0204d37a524797 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4efa6bea748401e955741b98e04c09f74f5dfb83",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
