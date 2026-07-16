@@ -1,9 +1,10 @@
 import { PrismaClient } from '@prisma/client';
+import { customerEscalationPack } from '@readinessos/scenario-pack-customer-escalation';
 import { saasIncidentPack } from '@readinessos/scenario-pack-saas-incident';
 import {
+  customerEscalationSeedRevision,
   nextSeedScenarioVersion,
   saasIncidentSeedRevision,
-  studioSeedRevision,
 } from './seed-version';
 
 const prisma = new PrismaClient();
@@ -11,6 +12,18 @@ const prisma = new PrismaClient();
 const demoEmail = process.env.AUTH_DEMO_EMAIL ?? 'demo@readinessos.local';
 
 const saasParticipants = saasIncidentPack.participants.map((participant) => ({
+  id: participant.id,
+  key: participant.key,
+  displayName: participant.displayName,
+  controller: participant.controller,
+  enabled: true,
+  capabilities: [...participant.capabilities],
+  permissions: [...participant.permissions],
+  knowledgeScopes: [...participant.knowledgeScopes],
+  objectives: [...participant.objectives],
+}));
+
+const customerEscalationParticipants = customerEscalationPack.participants.map((participant) => ({
   id: participant.id,
   key: participant.key,
   displayName: participant.displayName,
@@ -98,11 +111,11 @@ async function main() {
       name: '关键客户升级',
       description: '关键客户风险升级时的响应、沟通和修复协调演练。',
       config: {
-        seedRevision: studioSeedRevision,
-        packKey: 'customer-escalation',
-        defaultDurationMinutes: 10,
-        difficulty: 'beginner',
-        defaultSeed: 17,
+        seedRevision: customerEscalationSeedRevision,
+        packKey: customerEscalationPack.key,
+        defaultDurationMinutes: customerEscalationPack.manifest.estimatedDurationMinutes,
+        difficulty: 'intermediate',
+        defaultSeed: 20_260_716,
         objectives: [
           {
             key: 'customerRecovery',
@@ -114,9 +127,13 @@ async function main() {
             label: '保持管理层对齐',
             description: '形成一致的风险判断与沟通口径。',
           },
+          {
+            key: 'deliveryConfidence',
+            label: '恢复交付信心',
+            description: '确认根因、受控排期并验证生产修复结果。',
+          },
         ],
-        // 该场景包尚未实现，保持空配置，避免 seed 虚构无法运行的参与方。
-        participants: [],
+        participants: customerEscalationParticipants,
       },
     },
   ] as const;

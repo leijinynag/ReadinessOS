@@ -326,21 +326,21 @@
 
 ### Customer Escalation Pack
 
-- [ ] `W7-01` 定义关键客户升级场景 State 和目标。
-- [ ] `W7-02` 定义参与方、Action、Signal、Inject 和 Evaluator。
-- [ ] `W7-03` 通过既有 UIContribution 接口接入 Live 和 Review。
-- [ ] `W7-04` 确认未修改 Simulation Kernel。
-- [ ] `W7-05` 确认未创建场景专属路由或复制 Live/Review 页面。
-- [ ] `W7-06` 运行 Scenario Pack Contract Test。
-- [ ] `W7-07` 添加两个场景切换和完整闭环 E2E。
-- [ ] `W7-08` 输出扩展性报告，记录第二场景实际复用与新增内容。
+- [x] `W7-01` 定义关键客户升级场景 State 和目标。
+- [x] `W7-02` 定义参与方、Action、Signal、Inject 和 Evaluator。
+- [x] `W7-03` 通过既有 UIContribution 接口接入 Live 和 Review。
+- [x] `W7-04` 确认未修改 Simulation Kernel。
+- [x] `W7-05` 确认未创建场景专属路由或复制 Live/Review 页面。
+- [x] `W7-06` 运行 Scenario Pack Contract Test。
+- [x] `W7-07` 添加两个场景切换和完整闭环 E2E。
+- [x] `W7-08` 输出扩展性报告，记录第二场景实际复用与新增内容。
 
 ### W7 验收
 
-- [ ] `W7-A1` 两个场景使用相同 Kernel、Command、Live 和 Review。
-- [ ] `W7-A2` 两个场景通过同一 Contract Harness。
-- [ ] `W7-A3` 第二场景无需新增专属页面即可运行。
-- [ ] `W7-C1` Commit Checkpoint：提交第二场景，建议 `feat(scenarios): add customer escalation pack`。
+- [x] `W7-A1` 两个场景使用相同 Kernel、Command、Live 和 Review。
+- [x] `W7-A2` 两个场景通过同一 Contract Harness。
+- [x] `W7-A3` 第二场景无需新增专属页面即可运行。
+- [x] `W7-C1` Commit Checkpoint：提交第二场景，建议 `feat(scenarios): add customer escalation pack`。
 - [ ] `W7-P1` Push Checkpoint：推送 W7 分支并更新 PR。
 
 ---

@@ -1,5 +1,6 @@
 export const studioSeedRevision = 'studio-lite-v1';
 export const saasIncidentSeedRevision = 'saas-incident-v2';
+export const customerEscalationSeedRevision = 'customer-escalation-v1';
 
 type ExistingScenarioVersion = {
   version: number;

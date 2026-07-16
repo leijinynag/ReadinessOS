@@ -15,6 +15,7 @@
     "@readinessos/application": "workspace:*",
     "@readinessos/database": "workspace:*",
     "@readinessos/domain-events": "workspace:*",
+    "@readinessos/scenario-pack-customer-escalation": "workspace:*",
     "@readinessos/scenario-pack-saas-incident": "workspace:*",
     "@readinessos/scenario-sdk": "workspace:*",
     "@readinessos/simulation-kernel": "workspace:*",
