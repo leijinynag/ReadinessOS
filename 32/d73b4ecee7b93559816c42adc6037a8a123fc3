@@ -1,0 +1,21 @@
+tasks.md
+  s_b45c549f48cfe4::t_311af7b611632a 246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "32d73b4ecee7b93559816c42adc6037a8a123fc3",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
