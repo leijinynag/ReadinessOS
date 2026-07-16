@@ -4,3 +4,5 @@
 **/dist/**
 **/generated/**
 **/prisma/migrations/**
+**/.claude/settings.local.json
+**/.well-known/workflow/**
