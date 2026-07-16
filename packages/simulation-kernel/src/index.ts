@@ -180,7 +180,7 @@ export type RunCommandPayload =
   | {
       readonly type: 'resolve-approval';
       readonly approvalId: string;
-      readonly decision: 'approved' | 'denied';
+      readonly decision: 'approved' | 'denied' | 'expired';
     }
   | { readonly type: 'trigger-inject'; readonly injectKey: string }
   | { readonly type: 'finish-run'; readonly reason: string }
@@ -616,6 +616,16 @@ export class SimulationKernel<TState> {
         if (!pendingApproval) {
           return this.reject(state, 'APPROVAL_STALE', 'The approval no longer exists.');
         }
+        if (payload.decision === 'expired') {
+          append({
+            type: 'action.approval_expired',
+            source: eventSourceForActor(command.actor),
+            participantId: pendingApproval.participantId,
+            idempotencyKey: `${command.idempotencyKey}:expired`,
+            payload: { approvalId: pendingApproval.approvalId },
+          });
+          break;
+        }
         if (payload.decision === 'denied') {
           append({
             type: 'action.denied',
@@ -933,7 +943,8 @@ export class SimulationKernel<TState> {
         };
       }
       case 'action.approved':
-      case 'action.denied': {
+      case 'action.denied':
+      case 'action.approval_expired': {
         const payload = recordPayload(event.payload);
         const approvalId = readString(payload, 'approvalId');
         const pendingApprovals = { ...next.pendingApprovals };

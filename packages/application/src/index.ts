@@ -51,6 +51,7 @@ export {
   RuntimeOutboxPublisher,
   streamEnvelopeSchema,
   type ClaimedOutboxMessage,
+  type ApprovalSummary,
   type CommandExecution,
   type CreateRunRequest,
   type OutboxMessageHandler,

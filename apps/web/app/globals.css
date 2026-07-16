@@ -1349,7 +1349,8 @@ h1 {
 }
 
 .live-control-section,
-.live-action-panel {
+.live-action-panel,
+.live-approval-panel {
   margin-top: 20px;
   border-top: 1px solid var(--line);
   padding-top: 16px;
@@ -1483,6 +1484,65 @@ h1 {
   color: var(--red);
   font-size: 10px;
   line-height: 1.35;
+}
+
+.live-approval-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-approval-list > li {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffaf0;
+}
+
+.live-approval-title,
+.live-approval-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.live-approval-title strong,
+.live-approval-title span {
+  display: block;
+}
+
+.live-approval-title span,
+.live-approval-list p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.live-approval-list p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.approval-status {
+  color: var(--amber);
+  font-size: 13px;
+}
+
+.approval-status.is-approved {
+  color: var(--teal);
+}
+
+.approval-status.is-denied,
+.approval-status.is-expired,
+.approval-status.is-stale {
+  color: var(--red);
+}
+
+.live-approval-actions {
+  justify-content: flex-start;
+  margin-top: 12px;
 }
 
 .live-participant-list {

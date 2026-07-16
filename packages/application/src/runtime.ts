@@ -16,7 +16,7 @@ import {
   type SimulationState,
   type Trigger,
 } from '@readinessos/simulation-kernel';
-import { EventSource, Prisma, PrismaClient, RunStatus } from '@prisma/client';
+import { ApprovalStatus, EventSource, Prisma, PrismaClient, RunStatus } from '@prisma/client';
 import { z } from 'zod';
 import type { RunScheduler } from './agent-runtime';
 
@@ -27,6 +27,7 @@ export const streamEnvelopeSchema = z.object({
 export type StreamEnvelope = z.infer<typeof streamEnvelopeSchema>;
 
 const stateSnapshotSchemaVersion = 2;
+const approvalTtlMilliseconds = 15 * 60 * 1_000;
 
 const scenarioVersionConfigSchema = z
   .object({
@@ -92,6 +93,27 @@ export type RunSummary = {
   createdAt: string;
   updatedAt: string;
   data: Record<string, unknown>;
+};
+
+export type ApprovalSummary = {
+  id: string;
+  actionType: string;
+  participantId: string;
+  requestedSequence: number;
+  parameters: Record<string, unknown>;
+  status: ApprovalStatus;
+  requestedAt: string;
+  expiresAt: string;
+  resolvedAt: string | undefined;
+  resolvedById: string | undefined;
+  resolutionSequence: number | undefined;
+  evidence: readonly {
+    id: string;
+    sequence: number;
+    eventType: string;
+    label: string;
+    data: Record<string, unknown>;
+  }[];
 };
 
 export type CreateRunRequest = {
@@ -567,6 +589,65 @@ export class PrismaRunRepository {
     return (await this.getRunScenarioVersionConfig(runId, organizationId)).packKey;
   }
 
+  async listApprovals(runId: string, organizationId: string): Promise<readonly ApprovalSummary[]> {
+    await this.requireRun(this.client, runId, organizationId);
+    const approvals = await this.client.approval.findMany({
+      where: { runId },
+      include: { evidences: { orderBy: { sequence: 'asc' } } },
+      orderBy: { requestedSequence: 'desc' },
+    });
+    return approvals.map((approval) => ({
+      id: approval.id,
+      actionType: approval.actionType,
+      participantId: approval.participantId,
+      requestedSequence: approval.requestedSequence,
+      parameters: jsonRecordOrEmpty(approval.parameters),
+      status: approval.status,
+      requestedAt: approval.requestedAt.toISOString(),
+      expiresAt: approval.expiresAt.toISOString(),
+      resolvedAt: approval.resolvedAt?.toISOString(),
+      resolvedById: approval.resolvedById ?? undefined,
+      resolutionSequence: approval.resolutionSequence ?? undefined,
+      evidence: approval.evidences.map((evidence) => ({
+        id: evidence.id,
+        sequence: evidence.sequence,
+        eventType: evidence.eventType,
+        label: evidence.label,
+        data: jsonRecordOrEmpty(evidence.data),
+      })),
+    }));
+  }
+
+  async getApproval(
+    runId: string,
+    organizationId: string,
+    approvalId: string,
+  ): Promise<ApprovalSummary> {
+    const approval = (await this.listApprovals(runId, organizationId)).find(
+      (candidate) => candidate.id === approvalId,
+    );
+    if (!approval) {
+      throw new ApplicationError('NOT_FOUND', 'Approval was not found for this run.');
+    }
+    return approval;
+  }
+
+  async markApprovalStale(
+    runId: string,
+    organizationId: string,
+    approvalId: string,
+  ): Promise<void> {
+    await this.client.approval.updateMany({
+      where: {
+        id: approvalId,
+        runId,
+        run: { organizationId },
+        status: 'pending',
+      },
+      data: { status: 'stale', resolvedAt: new Date() },
+    });
+  }
+
   async getRunScenarioVersionConfig(
     runId: string,
     organizationId: string,
@@ -996,6 +1077,8 @@ export class PrismaRunRepository {
       })),
     });
 
+    await this.materializeGovernance(tx, run.id, result);
+
     const participants = await tx.runParticipant.findMany({
       where: { runId: run.id },
       select: { id: true, key: true },
@@ -1083,6 +1166,137 @@ export class PrismaRunRepository {
       data: [...eventMessages, ...schedulerMessage],
     });
   }
+
+  private async materializeGovernance<TState>(
+    tx: Prisma.TransactionClient,
+    runId: string,
+    result: KernelResult<TState>,
+  ): Promise<void> {
+    for (const event of result.events.filter((candidate) => candidate.type === 'action.approval_requested')) {
+      const payload = jsonRecordOrEmpty(event.payload);
+      const approvalId = readRequiredString(payload, 'approvalId');
+      const requestedAt = new Date(event.recordedAt);
+      await tx.approval.upsert({
+        where: { id: approvalId },
+        create: {
+          id: approvalId,
+          runId,
+          actionType: readRequiredString(payload, 'actionType'),
+          participantId: readRequiredString(payload, 'participantId'),
+          requestedByCommandId: readRequiredString(payload, 'requestedByCommandId'),
+          requestedSequence: event.sequence,
+          parameters: toInputJson(jsonRecordOrEmpty(payload.parameters)),
+          status: 'pending',
+          requestedAt,
+          expiresAt: new Date(requestedAt.getTime() + approvalTtlMilliseconds),
+        },
+        update: {},
+      });
+      await tx.evidence.upsert({
+        where: {
+          approvalId_sequence_eventType: {
+            approvalId,
+            sequence: event.sequence,
+            eventType: event.type,
+          },
+        },
+        create: {
+          runId,
+          approvalId,
+          sequence: event.sequence,
+          eventType: event.type,
+          label: '高风险动作等待审批',
+          data: toInputJson({
+            actionType: payload.actionType,
+            parameters: payload.parameters,
+          }),
+        },
+        update: {},
+      });
+    }
+
+    for (const event of result.events.filter((candidate) =>
+      ['action.approved', 'action.denied', 'action.approval_expired'].includes(candidate.type),
+    )) {
+      const approvalId = readRequiredString(jsonRecordOrEmpty(event.payload), 'approvalId');
+      const status: ApprovalStatus =
+        event.type === 'action.approved'
+          ? 'approved'
+          : event.type === 'action.denied'
+            ? 'denied'
+            : 'expired';
+      await tx.approval.updateMany({
+        where: { id: approvalId, runId, status: 'pending' },
+        data: {
+          status,
+          resolvedAt: new Date(event.recordedAt),
+          resolutionSequence: event.sequence,
+        },
+      });
+      await tx.decision.upsert({
+        where: { approvalId },
+        create: {
+          runId,
+          approvalId,
+          sequence: event.sequence,
+          decision: status,
+        },
+        update: {},
+      });
+    }
+
+    if (result.evaluations.length === 0 || result.events.length === 0) {
+      return;
+    }
+    for (const evaluation of result.evaluations) {
+      const persisted = await tx.evaluation.upsert({
+        where: {
+          runId_evaluatorKey_sequence: {
+            runId,
+            evaluatorKey: evaluation.evaluatorKey,
+            sequence: result.state.run.latestSequence,
+          },
+        },
+        create: {
+          runId,
+          evaluatorKey: evaluation.evaluatorKey,
+          sequence: result.state.run.latestSequence,
+          score: evaluation.score,
+          summary: evaluation.summary,
+        },
+        update: {
+          score: evaluation.score,
+          summary: evaluation.summary,
+        },
+      });
+      const matching = result.events.filter((event) =>
+        evaluation.evidenceEventTypes.includes(event.type),
+      );
+      // 评分没有产生对应类型事件时，绑定本次变更的最后一个事件作为最小证据，
+      // 使每个评分维度在 Review 页面都可以回到不可变时间线。
+      const evidenceEvents = matching.length > 0 ? matching : result.events.slice(-1);
+      for (const event of evidenceEvents) {
+        await tx.evidence.upsert({
+          where: {
+            evaluationId_sequence_eventType: {
+              evaluationId: persisted.id,
+              sequence: event.sequence,
+              eventType: event.type,
+            },
+          },
+          create: {
+            runId,
+            evaluationId: persisted.id,
+            sequence: event.sequence,
+            eventType: event.type,
+            label: `评分证据：${event.type}`,
+            data: toInputJson(event.payload),
+          },
+          update: {},
+        });
+      }
+    }
+  }
 }
 
 export interface OutboxMessageHandler {
@@ -1142,6 +1356,44 @@ export class RunApplicationService {
     );
   }
 
+  async resolveApproval(
+    command: Omit<RunCommand, 'payload'>,
+    approvalId: string,
+    decision: 'approved' | 'denied',
+  ): Promise<CommandExecution> {
+    const run = await this.repository.getRun(command.runId, command.organizationId);
+    const approval = await this.repository.getApproval(
+      command.runId,
+      command.organizationId,
+      approvalId,
+    );
+    if (approval.status !== 'pending') {
+      throw new ApplicationError('APPROVAL_STALE', 'The approval has already been resolved.');
+    }
+    const expired = new Date(approval.expiresAt) <= new Date();
+    const execution = await this.repository.execute(
+      {
+        ...command,
+        expectedRunVersion: command.expectedRunVersion ?? run.version,
+        // 过期同样必须经过 Kernel 产生事件，才会从 Snapshot 的 pending
+        // 集合中移除，避免审批投影与权威状态出现分叉。
+        payload: {
+          type: 'resolve-approval',
+          approvalId,
+          decision: expired ? 'expired' : decision,
+        },
+      },
+      this.specializePack(await this.getRunScenarioVersionConfig(command)),
+    );
+    if (expired) {
+      throw new ApplicationError('APPROVAL_STALE', 'The approval has expired.');
+    }
+    if (execution.result.rejection?.code === 'APPROVAL_STALE') {
+      await this.repository.markApprovalStale(command.runId, command.organizationId, approvalId);
+    }
+    return execution;
+  }
+
   async executeScheduledTick(input: {
     runId: string;
     organizationId: string;
@@ -1186,6 +1438,10 @@ export class RunApplicationService {
 
   async getRun(runId: string, organizationId: string): Promise<RunSummary> {
     return this.repository.getRun(runId, organizationId);
+  }
+
+  async listApprovals(runId: string, organizationId: string): Promise<readonly ApprovalSummary[]> {
+    return this.repository.listApprovals(runId, organizationId);
   }
 
   /**
@@ -1598,6 +1854,20 @@ function jsonRecord(value: Prisma.JsonValue): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   throw new ApplicationError('VALIDATION_ERROR', 'Scenario configuration must be a JSON object.');
+}
+
+function jsonRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function readRequiredString(value: Record<string, unknown>, key: string): string {
+  const candidate = value[key];
+  if (typeof candidate !== 'string' || candidate.length === 0) {
+    throw new ApplicationError('INTERNAL_ERROR', `Expected ${key} in a persisted event payload.`);
+  }
+  return candidate;
 }
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {

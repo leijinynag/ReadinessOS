@@ -38,6 +38,26 @@ describe('LiveWorkspaceClient', () => {
       if (url.includes('/agent-traces')) {
         return Response.json({ agentTraces: [] });
       }
+      if (url.endsWith('/approvals')) {
+        return Response.json({
+          approvals: [
+            {
+              id: '018f4c8b-9ae2-7a72-86bd-4f867befef41',
+              actionType: 'declare-incident',
+              participantId: runtimeParticipantId,
+              requestedSequence: 5,
+              parameters: {},
+              status: 'pending',
+              requestedAt: '2026-07-16T00:00:00.000Z',
+              expiresAt: '2026-07-16T00:15:00.000Z',
+              evidence: [],
+            },
+          ],
+        });
+      }
+      if (init?.method === 'POST' && url.includes('/approvals/')) {
+        return Response.json({ result: {} }, { headers: { ETag: '"5"' } });
+      }
       return Response.json({});
     });
   });
@@ -67,6 +87,20 @@ describe('LiveWorkspaceClient', () => {
       participantId: runtimeParticipantId,
     });
     expect(await screen.findByText('已接受')).toBeVisible();
+  });
+
+  it('展示待审批动作并可以批准', async () => {
+    render(<LiveWorkspaceClient {...workspaceProps()} />);
+
+    expect(await screen.findByText('待审批')).toBeVisible();
+    fireEvent.click(screen.getAllByRole('button', { name: '批准' }).at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/approvals/018f4c8b-9ae2-7a72-86bd-4f867befef41'),
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
   });
 });
 

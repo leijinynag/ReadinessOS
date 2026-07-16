@@ -36,6 +36,23 @@ type AgentTrace = {
   eventType: string;
   recordedAt: string;
 };
+type Approval = {
+  id: string;
+  actionType: string;
+  participantId: string;
+  requestedSequence: number;
+  parameters: Record<string, unknown>;
+  status: 'pending' | 'approved' | 'denied' | 'expired' | 'stale';
+  requestedAt: string;
+  expiresAt: string;
+  evidence: readonly {
+    id: string;
+    sequence: number;
+    eventType: string;
+    label: string;
+    data: Record<string, unknown>;
+  }[];
+};
 type TimelineItem =
   | { kind: 'event'; id: string; recordedAt: string; envelope: StreamEnvelope }
   | { kind: 'trace'; id: string; recordedAt: string; trace: AgentTrace };
@@ -82,6 +99,7 @@ export function LiveWorkspaceClient({
     eventStoreRef.current.snapshot(),
   );
   const [traces, setTraces] = useState<readonly AgentTrace[]>([]);
+  const [approvals, setApprovals] = useState<readonly Approval[]>([]);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [commandError, setCommandError] = useState<string | null>(null);
   const runActorRef = useRef(createActor(liveRunMachine, { input: toRunContext(initialRun) }));
@@ -130,6 +148,15 @@ export function LiveWorkspaceClient({
     traceCursorRef.current = body.nextTraceCursor;
   }, [initialRun.id]);
 
+  const fetchApprovals = useCallback(async () => {
+    const response = await fetch(`/api/runs/${initialRun.id}/approvals`, { cache: 'no-store' });
+    if (!response.ok) {
+      return;
+    }
+    const body = (await response.json()) as { approvals?: Approval[] };
+    setApprovals(body.approvals ?? []);
+  }, [initialRun.id]);
+
   const recoverEvents = useCallback(async () => {
     if (recoveringRef.current) {
       return;
@@ -162,11 +189,11 @@ export function LiveWorkspaceClient({
         }
         cursor = nextCursor;
       }
-      await Promise.all([refreshRun(), fetchTraces()]);
+      await Promise.all([refreshRun(), fetchTraces(), fetchApprovals()]);
     } finally {
       recoveringRef.current = false;
     }
-  }, [fetchTraces, initialRun.id, refreshRun, updateEventSnapshot]);
+  }, [fetchApprovals, fetchTraces, initialRun.id, refreshRun, updateEventSnapshot]);
 
   useEffect(() => {
     const runActor = runActorRef.current;
@@ -213,6 +240,9 @@ export function LiveWorkspaceClient({
           if (parsed.event.source === 'agent' || parsed.event.type.startsWith('action.')) {
             void fetchTraces();
           }
+          if (parsed.event.type.startsWith('action.approval')) {
+            void fetchApprovals();
+          }
         });
         source.onopen = () => connectionActor.send({ type: 'open' });
         source.onerror = () => {
@@ -251,11 +281,11 @@ export function LiveWorkspaceClient({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [fetchTraces, initialRun.id, recoverEvents, refreshRun, updateEventSnapshot]);
+  }, [fetchApprovals, fetchTraces, initialRun.id, recoverEvents, refreshRun, updateEventSnapshot]);
 
   const submitCommand = useCallback(
     async (input: {
-      endpoint: 'actions' | 'pause' | 'resume' | 'inject';
+      endpoint: string;
       body: Record<string, unknown>;
       label: string;
     }) => {
@@ -364,6 +394,19 @@ export function LiveWorkspaceClient({
     initialRect: { width: 960, height: 374 },
   });
   const isRunnable = run.status === 'running';
+  const pendingApprovals = approvals.filter((approval) => approval.status === 'pending');
+
+  const resolveApproval = useCallback(
+    async (approval: Approval, decision: 'approved' | 'denied') => {
+      await submitCommand({
+        endpoint: `approvals/${approval.id}`,
+        body: { decision },
+        label: `${decision === 'approved' ? '批准' : '拒绝'}动作: ${approval.actionType}`,
+      });
+      await fetchApprovals();
+    },
+    [fetchApprovals, submitCommand],
+  );
 
   return (
     <main className="page-content live-page">
@@ -426,7 +469,7 @@ export function LiveWorkspaceClient({
               <UsersRound size={17} aria-hidden="true" />
               <div>
                 <span>待审批动作</span>
-                <strong>{pendingApprovalIds.length} 项</strong>
+                <strong>{Math.max(pendingApprovalIds.length, pendingApprovals.length)} 项</strong>
               </div>
             </article>
           </div>
@@ -655,6 +698,64 @@ export function LiveWorkspaceClient({
               </p>
             ) : null}
           </section>
+
+          <section className="live-approval-panel" aria-labelledby="live-approvals-heading">
+            <div className="live-subheading">
+              <h3 id="live-approvals-heading">审批队列</h3>
+              <span>{pendingApprovals.length} 项待处理</span>
+            </div>
+            {approvals.length === 0 ? (
+              <p className="live-empty-copy">暂无高风险动作等待审批。</p>
+            ) : (
+              <ul className="live-approval-list">
+                {approvals.slice(0, 6).map((approval) => (
+                  <li key={approval.id}>
+                    <div className="live-approval-title">
+                      <div>
+                        <strong>{approval.actionType}</strong>
+                        <span>
+                          {participantName(participants, approval.participantId)} · #
+                          {approval.requestedSequence}
+                        </span>
+                      </div>
+                      <strong className={`approval-status is-${approval.status}`}>
+                        {approvalStatusLabel(approval.status)}
+                      </strong>
+                    </div>
+                    <p>
+                      参数：{Object.keys(approval.parameters).length
+                        ? JSON.stringify(approval.parameters)
+                        : '无'}
+                    </p>
+                    <p>
+                      证据：
+                      {approval.evidence.length
+                        ? approval.evidence.map((evidence) => ` #${evidence.sequence}`).join('')
+                        : ' 暂无'}
+                    </p>
+                    {approval.status === 'pending' ? (
+                      <div className="live-approval-actions">
+                        <button
+                          className="button button-primary"
+                          type="button"
+                          onClick={() => void resolveApproval(approval, 'approved')}
+                        >
+                          批准
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => void resolveApproval(approval, 'denied')}
+                        >
+                          拒绝
+                        </button>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </section>
 
         <aside className="live-inspector" aria-labelledby="live-inspector-heading">
@@ -807,6 +908,16 @@ function parseEnvelope(value: string): StreamEnvelope | null {
 
 function pendingApprovalCount(run: RunSummary): number {
   return readStringArray(readRecord(run.data).pendingApprovalIds).length;
+}
+
+function approvalStatusLabel(status: Approval['status']): string {
+  return {
+    pending: '待审批',
+    approved: '已批准',
+    denied: '已拒绝',
+    expired: '已过期',
+    stale: '已失效',
+  }[status];
 }
 
 function newCommandId(): string {
