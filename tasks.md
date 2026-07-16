@@ -341,7 +341,7 @@
 - [x] `W7-A2` 两个场景通过同一 Contract Harness。
 - [x] `W7-A3` 第二场景无需新增专属页面即可运行。
 - [x] `W7-C1` Commit Checkpoint：提交第二场景，建议 `feat(scenarios): add customer escalation pack`。
-- [ ] `W7-P1` Push Checkpoint：推送 W7 分支并更新 PR。
+- [x] `W7-P1` Push Checkpoint：推送 W7 分支并更新 PR。
 
 ---
 
