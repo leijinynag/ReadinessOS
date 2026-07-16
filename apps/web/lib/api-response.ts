@@ -1,6 +1,7 @@
 import { ApplicationError } from '@readinessos/domain-events';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { logError } from './observability';
 
 export function apiError(error: unknown): NextResponse {
   if (error instanceof ApplicationError) {
@@ -39,7 +40,7 @@ export function apiError(error: unknown): NextResponse {
     );
   }
 
-  console.error('Unhandled API error', error);
+  logError('Unhandled API error', error);
   return NextResponse.json(
     {
       error: {

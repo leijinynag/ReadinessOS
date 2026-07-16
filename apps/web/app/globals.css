@@ -1649,6 +1649,20 @@ h1 {
   border-top: 1px solid var(--line);
 }
 
+.review-timeline-scroll {
+  height: min(560px, 66vh);
+  overflow: auto;
+}
+
+.review-timeline-virtual {
+  position: relative;
+}
+
+.review-timeline-virtual li {
+  position: absolute;
+  width: 100%;
+}
+
 .review-timeline li.is-selected {
   background: #ecfdf5;
 }
@@ -1992,5 +2006,16 @@ h1 {
 
   .user-label {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

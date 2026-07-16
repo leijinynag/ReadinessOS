@@ -1,9 +1,10 @@
-import { OrganizationAuthorizationService, type AuthSession } from '@readinessos/application';
-import { prisma } from '@readinessos/database';
+import { type AuthSession } from '@readinessos/application';
 import { ApplicationError } from '@readinessos/domain-events';
 import { apiError, requiredIdempotencyKey, responseWithRunVersion } from '@/lib/api-response';
-import { getAuthSession } from '@/lib/auth-session';
+import { getAuthSession, getPrimaryOrganizationId } from '@/lib/auth-session';
+import { withSpan } from '@/lib/observability';
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { guestRunExpiresAt } from '@/lib/release-policy';
 import {
   createStudioRunService,
   studioRunDraftSchema,
@@ -13,7 +14,6 @@ import {
 type RouteContext = { params: Promise<{ scenarioId: string }> };
 type PostDependencies = {
   getSession: () => Promise<AuthSession | null>;
-  findDemoOrganization: () => Promise<{ id: string } | null>;
   createAndStart: (input: {
     organizationId: string;
     scenarioId: string;
@@ -27,41 +27,49 @@ type PostDependencies = {
     idempotencyKey: string;
     draft: StudioRunDraft;
     simulatedAt: string;
+    expiresAt?: string;
   }) => ReturnType<ReturnType<typeof createStudioRunService>['createAndStart']>;
   drainOutbox: () => Promise<void>;
 };
 
-const authorization = new OrganizationAuthorizationService();
-
 export function createPostHandler(dependencies: PostDependencies) {
   return async function POST(request: Request, context: RouteContext): Promise<Response> {
     try {
-      const [{ scenarioId }, draft, session, organization] = await Promise.all([
+      const [{ scenarioId }, draft, session] = await Promise.all([
         context.params,
         request.json().then((body) => studioRunDraftSchema.parse(body)),
         dependencies.getSession(),
-        dependencies.findDemoOrganization(),
       ]);
-      if (!organization) {
-        throw new ApplicationError('NOT_FOUND', 'Demo organization is not configured.');
-      }
-      authorization.requireOrganizationAccess(session, organization.id, 'member');
+      if (!session) throw new ApplicationError('UNAUTHENTICATED', 'Authentication is required.');
       const authenticatedSession = session as AuthSession;
+      const organizationId = getPrimaryOrganizationId(authenticatedSession);
       const idempotencyKey = requiredIdempotencyKey(request);
-      const result = await dependencies.createAndStart({
-        organizationId: organization.id,
-        scenarioId,
-        createdById: authenticatedSession.userId,
-        actor: {
-          id: authenticatedSession.userId,
-          type: 'user',
-          organizationId: organization.id,
-          displayName: authenticatedSession.email,
+      const result = await withSpan(
+        'readinessos.command.create_and_start_run',
+        {
+          'organization.id': organizationId,
+          'scenario.id': scenarioId,
+          'actor.is_guest': authenticatedSession.isGuest,
         },
-        idempotencyKey,
-        draft,
-        simulatedAt: new Date().toISOString(),
-      });
+        () =>
+          dependencies.createAndStart({
+            organizationId,
+            scenarioId,
+            createdById: authenticatedSession.userId,
+            actor: {
+              id: authenticatedSession.userId,
+              type: 'user',
+              organizationId,
+              displayName: authenticatedSession.email,
+            },
+            idempotencyKey,
+            draft,
+            simulatedAt: new Date().toISOString(),
+            ...(authenticatedSession.isGuest
+              ? { expiresAt: guestRunExpiresAt().toISOString() }
+              : {}),
+          }),
+      );
       await dependencies.drainOutbox();
       return responseWithRunVersion(
         {
@@ -82,11 +90,6 @@ export function createPostHandler(dependencies: PostDependencies) {
 
 export const POST = createPostHandler({
   getSession: getAuthSession,
-  findDemoOrganization: () =>
-    prisma.organization.findUnique({
-      where: { slug: 'readiness-demo' },
-      select: { id: true },
-    }),
   createAndStart: (input) => createStudioRunService(runService).createAndStart(input),
   drainOutbox: drainRuntimeOutbox,
 });

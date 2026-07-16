@@ -35,8 +35,13 @@ const userId = '018f4c8b-9ae2-7a72-86bd-4f867befef03';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.findRun.mockResolvedValue({ organizationId });
-  mocks.requireSession.mockResolvedValue({ userId, email: 'operator@example.com' });
+  mocks.findRun.mockResolvedValue({ organizationId, expiresAt: null });
+  mocks.requireSession.mockResolvedValue({
+    userId,
+    email: 'operator@example.com',
+    isGuest: false,
+    guestExpiresAt: undefined,
+  });
   mocks.getPack.mockResolvedValue({ injects: [{ key: 'payment-service-outage' }] });
   mocks.execute.mockResolvedValue({
     result: { state: { run: { version: 8 } } },
@@ -71,6 +76,20 @@ describe('Director inject route', () => {
   it('拒绝没有成员权限的请求', async () => {
     mocks.requireSession.mockRejectedValue(new ApplicationError('FORBIDDEN', 'denied'));
     const response = await call({ injectKey: 'payment-service-outage' });
+    expect(response.status).toBe(403);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it('拒绝访客触发 Director inject', async () => {
+    mocks.requireSession.mockResolvedValue({
+      userId,
+      email: 'guest@readinessos.local',
+      isGuest: true,
+      guestExpiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const response = await call({ injectKey: 'payment-service-outage' });
+
     expect(response.status).toBe(403);
     expect(mocks.execute).not.toHaveBeenCalled();
   });

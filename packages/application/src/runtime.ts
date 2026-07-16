@@ -90,6 +90,7 @@ export type RunSummary = {
   tickIntervalSeconds: number;
   startedAt: string | undefined;
   completedAt: string | undefined;
+  expiresAt: string | undefined;
   createdAt: string;
   updatedAt: string;
   data: Record<string, unknown>;
@@ -199,6 +200,7 @@ export type CreateRunRequest = {
   seed: number;
   simulatedAt: string;
   tickIntervalSeconds?: number;
+  expiresAt?: string;
 };
 
 export type CreateBranchRequest = {
@@ -463,6 +465,7 @@ export class PrismaRunRepository {
             createIdempotencyKey: request.idempotencyKey,
             seed: request.seed,
             tickIntervalSeconds,
+            ...(request.expiresAt === undefined ? {} : { expiresAt: new Date(request.expiresAt) }),
           },
         });
 
@@ -606,6 +609,7 @@ export class PrismaRunRepository {
             createIdempotencyKey: request.idempotencyKey,
             seed: parent.seed,
             tickIntervalSeconds: parent.tickIntervalSeconds,
+            expiresAt: parent.expiresAt,
           },
         });
         const input: CreateRunInput = {
@@ -750,6 +754,7 @@ export class PrismaRunRepository {
       if (scheduledTick) {
         if (
           run.status !== 'running' ||
+          (run.expiresAt !== null && run.expiresAt <= new Date()) ||
           run.schedulerGeneration !== scheduledTick.generation ||
           run.nextTickIndex + 1 !== scheduledTick.tickIndex
         ) {
@@ -838,6 +843,7 @@ export class PrismaRunRepository {
         tickIntervalSeconds: run.tickIntervalSeconds,
         startedAt: run.startedAt,
         completedAt: run.completedAt,
+        expiresAt: run.expiresAt,
       };
       await this.writeEventsAndProjections(tx, updatedRun, result, {
         forceSnapshot: shouldForceSnapshot(result.events),
@@ -1202,10 +1208,16 @@ export class PrismaRunRepository {
           schedulerGeneration: true,
           nextTickIndex: true,
           tickIntervalSeconds: true,
+          expiresAt: true,
           scheduleLease: true,
         },
       });
-      if (!run || run.status !== 'running' || run.schedulerGeneration !== input.generation) {
+      if (
+        !run ||
+        run.status !== 'running' ||
+        (run.expiresAt !== null && run.expiresAt <= now) ||
+        run.schedulerGeneration !== input.generation
+      ) {
         return { status: 'ineligible' };
       }
       if (run.scheduleLease?.generation === input.generation && run.scheduleLease.expiresAt > now) {
@@ -2300,6 +2312,7 @@ function createRunUpdateData<TState>(
     nextTickIndex: number;
     startedAt: Date | null;
     completedAt: Date | null;
+    expiresAt: Date | null;
   },
   result: KernelResult<TState>,
   scheduler: SchedulerInstruction | undefined,
@@ -2456,6 +2469,7 @@ function toRunSummary(run: {
   tickIntervalSeconds: number;
   startedAt: Date | null;
   completedAt: Date | null;
+  expiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): RunSummary {
@@ -2473,6 +2487,7 @@ function toRunSummary(run: {
     tickIntervalSeconds: run.tickIntervalSeconds,
     startedAt: run.startedAt?.toISOString(),
     completedAt: run.completedAt?.toISOString(),
+    expiresAt: run.expiresAt?.toISOString(),
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
     data: {},

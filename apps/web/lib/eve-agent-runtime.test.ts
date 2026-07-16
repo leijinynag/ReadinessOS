@@ -76,6 +76,8 @@ describe('EveAgentRuntime contract', () => {
             type: 'step.completed',
             data: { usage: { inputTokens: 30, outputTokens: 5, costUsd: 0.0003 } },
           },
+          { type: 'tool.completed', data: { name: 'read_run_state' } },
+          { type: 'subagent.completed', data: { name: 'risk_analyst' } },
         ],
       }),
       new PrismaAgentRuntimeStore(prisma),
@@ -111,6 +113,8 @@ describe('EveAgentRuntime contract', () => {
           quantity: 1500,
           unit: 'micro_usd',
         }),
+        expect.objectContaining({ category: 'agent_tool_steps', quantity: 1, unit: 'step' }),
+        expect.objectContaining({ category: 'agent_subagent_steps', quantity: 1, unit: 'step' }),
         expect.objectContaining({ category: 'agent_latency_ms', unit: 'ms' }),
       ]),
     );

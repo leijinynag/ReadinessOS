@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ApplicationError } from '@readinessos/domain-events';
 import { apiError, requiredIdempotencyKey, responseWithRunVersion } from '@/lib/api-response';
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
 import { requireRunSession } from '@/lib/run-api';
@@ -14,6 +15,13 @@ export async function POST(request: Request) {
   try {
     const input = createRunSchema.parse(await request.json());
     const session = await requireRunSession(input.organizationId, 'member');
+    if (session.isGuest) {
+      // 访客只能从 Studio 创建带时效和配置约束的 Run，不能调用通用 API 绕过边界。
+      throw new ApplicationError(
+        'FORBIDDEN',
+        'Guest demo access must create runs through the Studio workflow.',
+      );
+    }
     const idempotencyKey = requiredIdempotencyKey(request);
 
     const run = await runService.createRun({

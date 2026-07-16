@@ -12,6 +12,8 @@ export type OrganizationMembership = {
 export type AuthSession = {
   userId: string;
   email: string;
+  isGuest: boolean;
+  guestExpiresAt: string | undefined;
   memberships: OrganizationMembership[];
 };
 

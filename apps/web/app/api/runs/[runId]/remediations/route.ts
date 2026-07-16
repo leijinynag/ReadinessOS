@@ -4,6 +4,7 @@ import { prisma } from '@readinessos/database';
 import { apiError } from '@/lib/api-response';
 import { requireRunSession } from '@/lib/run-api';
 import { runService } from '@/lib/run-runtime';
+import { assertRunIsActiveForSession } from '@/lib/release-policy';
 
 const createSchema = z.object({
   evaluationId: z.string().uuid().optional(),
@@ -19,10 +20,11 @@ export async function POST(request: Request, context: RunRouteContext) {
     const body = createSchema.parse(await request.json());
     const run = await prisma.simulationRun.findUnique({
       where: { id: runId },
-      select: { organizationId: true },
+      select: { organizationId: true, expiresAt: true },
     });
     if (!run) throw new ApplicationError('NOT_FOUND', 'Run not found');
-    await requireRunSession(run.organizationId, 'member');
+    const session = await requireRunSession(run.organizationId, 'member');
+    assertRunIsActiveForSession(session, run);
     const item = await runService.createRemediationItem({
       runId,
       organizationId: run.organizationId,

@@ -2,7 +2,7 @@
 
 # ReadinessOS MVP 实施任务清单
 
-> 状态：W5 已完成，已合并审批、Review、回放与分支闭环
+> 状态：W8 本地上线质量实现已完成，待真实云环境验证与发布
 > 更新日期：2026-07-16
 > 依据：[plan.md](./plan.md)
 
@@ -349,28 +349,28 @@
 
 ### 安全与成本
 
-- [ ] `W8-01` 实现 Guest Demo 身份、运行时长和功能限制。
-- [ ] `W8-02` 实现数据库限流和 UsageLedger。
-- [ ] `W8-03` 配置 Agent Turn、Token、Tool、Subagent 和总费用预算。
-- [ ] `W8-04` 配置 Eve Sandbox 网络 allowlist 或 deny-all。
-- [ ] `W8-05` 完成跨租户、Knowledge Scope、分享链接和日志脱敏测试。
+- [x] `W8-01` 实现 Guest Demo 身份、运行时长和功能限制。
+- [x] `W8-02` 实现数据库限流和 UsageLedger。
+- [x] `W8-03` 配置 Agent Turn、Token、Tool、Subagent 和总费用预算。
+- [x] `W8-04` 配置 Eve Sandbox 网络 allowlist 或 deny-all。
+- [x] `W8-05` 完成跨租户、Knowledge Scope、分享链接和日志脱敏测试。
 - [ ] `W8-06` 确认 Production 密钥全部进入 Secret Store。
 
 ### 可观测性与运维
 
 - [ ] `W8-07` 接入 Sentry 前后端错误监控。
-- [ ] `W8-08` 完成 Command、Run、Agent、Workflow 和 Projection OTel Trace。
+- [x] `W8-08` 完成 Command、Run、Agent、Workflow 和 Projection OTel Trace。
 - [ ] `W8-09` 建立错误率、运行失败率、Agent 成本和 Tick 延迟 Dashboard。
 - [ ] `W8-10` 配置预算、Workflow 孤儿、Outbox 积压和数据库错误告警。
-- [ ] `W8-11` 编写发布、回滚、数据库迁移和事故 Runbook。
+- [x] `W8-11` 编写发布、回滚、数据库迁移和事故 Runbook。
 - [ ] `W8-12` 完成数据库 PITR 和恢复演练。
 
 ### 性能、无障碍与视觉
 
-- [ ] `W8-13` 验证 5,000 事件 Timeline 不创建全量 DOM。
+- [x] `W8-13` 验证 5,000 事件 Timeline 不创建全量 DOM。
 - [ ] `W8-14` 验证 10 events/s 下输入和面板交互保持响应。
 - [ ] `W8-15` 验证 Command、SSE、恢复和首屏性能预算。
-- [ ] `W8-16` 完成键盘、屏幕阅读器和 Reduced Motion 检查。
+- [x] `W8-16` 完成键盘、屏幕阅读器和 Reduced Motion 检查。
 - [ ] `W8-17` 用 Playwright 检查主要桌面和手机视口。
 - [ ] `W8-18` 修复所有文本重叠、横向溢出和不可操作控件。
 
@@ -380,7 +380,7 @@
 - [ ] `W8-20` 在 Preview 显式运行 Prisma Migration 并执行 Smoke Test。
 - [ ] `W8-21` 配置 Vercel Production 和自定义域名。
 - [ ] `W8-22` 执行 Production Migration、Seed 和核心 Smoke Test。
-- [ ] `W8-23` 完成 README、架构图、ADR 和演示数据。
+- [x] `W8-23` 完成 README、架构图、ADR 和演示数据。
 - [ ] `W8-24` 演练 5 分钟流程：动态 Agent、审批、复盘和分支。
 
 ### W8 验收

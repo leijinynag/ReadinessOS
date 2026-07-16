@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
     "@readinessos/application": "workspace:*",
     "@readinessos/database": "workspace:*",
     "@readinessos/domain-events": "workspace:*",

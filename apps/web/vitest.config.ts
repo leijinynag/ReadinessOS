@@ -1,5 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const localEnvPath = resolve(import.meta.dirname, '../../.env.local');
+
+if (existsSync(localEnvPath)) {
+  // CI 通过环境变量注入连接串；本地测试复用 Git 忽略的开发数据库配置。
+  process.loadEnvFile(localEnvPath);
+}
 
 export default defineConfig({
   oxc: {

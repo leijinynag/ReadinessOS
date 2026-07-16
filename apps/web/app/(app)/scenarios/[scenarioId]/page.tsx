@@ -1,9 +1,7 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { OrganizationAuthorizationService } from '@readinessos/application';
-import { prisma } from '@readinessos/database';
 import { notFound, redirect } from 'next/navigation';
-import { getAuthSession } from '@/lib/auth-session';
+import { getAuthSession, getPrimaryOrganizationId } from '@/lib/auth-session';
 import { buildScenarioGraph } from '@/lib/scenario-graph';
 import { scenarioPackRegistry } from '@/lib/scenario-pack-registry';
 import { getPublishedScenarioDetail } from '@/lib/scenario-query';
@@ -19,20 +17,12 @@ export default async function ScenarioDetailPage({ params }: ScenarioDetailPageP
     redirect('/login');
   }
 
-  const organization = await prisma.organization.findUnique({
-    where: { slug: 'readiness-demo' },
-    select: { id: true },
-  });
-  if (!organization) {
-    notFound();
-  }
-
-  new OrganizationAuthorizationService().requireOrganizationAccess(session, organization.id);
+  const organizationId = getPrimaryOrganizationId(session);
 
   const { scenarioId } = await params;
   const scenario = await getPublishedScenarioDetail({
     scenarioId,
-    organizationId: organization.id,
+    organizationId,
   });
   if (!scenario) {
     notFound();
