@@ -5,7 +5,8 @@
 1. 在干净的 `main` 分支执行 `pnpm db:generate`、`pnpm typecheck`、`pnpm test`、`pnpm lint`、
    `pnpm build`、`pnpm markdown:lint` 和 `pnpm db:test:migrations`。
 2. 在部署平台的 Preview 环境设置独立的 `DATABASE_URL`、`DIRECT_URL`、`AUTH_SECRET`、
-   `CRON_SECRET`、`EVE_BASE_URL` 和 `EVE_API_KEY`。不要把真实密钥提交到仓库。
+   `CRON_SECRET`、`DEEPSEEK_API_KEY`、`EVE_BASE_URL` 和 `EVE_API_KEY`。不要把真实密钥提交到仓库。
+   `DEEPSEEK_API_KEY` 用于直连 DeepSeek 的 `deepseek-v4-pro`；`EVE_BASE_URL` 只用于连接 Eve Runtime。
 3. 设置 Agent 预算变量；生产默认上限是 20 个 Turn、40,000 Token、100 个工具步骤和 2 美元。
    如果不允许子 Agent，保持 `AGENT_MAX_SUBAGENT_STEPS_PER_RUN=0`。
 4. 确认 Eve 的 Sandbox 使用 `apps/web/agent/sandbox.ts`，Vercel、Docker 和 Microsandbox
