@@ -13,7 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@prisma/client": "6.19.0",
+    "@prisma/client": "7.8.0",
     "@readinessos/database": "workspace:*",
     "@readinessos/domain-events": "workspace:*",
     "@readinessos/scenario-sdk": "workspace:*",
