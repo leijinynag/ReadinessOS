@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@prisma/client": "6.19.0",
+    "@prisma/client": "7.8.0",
     "@readinessos/domain-events": "workspace:*",
     "@readinessos/scenario-pack-customer-escalation": "workspace:*",
     "@readinessos/scenario-pack-saas-incident": "workspace:*",
