@@ -1,0 +1,35 @@
+.env.example
+  s_b45c549f48cfe4::t_67279e3c29c2df 30-32
+apps/web/agent/agent.ts
+  s_b45c549f48cfe4::t_a748fa756e45ab 3-4,6
+apps/web/agent/deepseek.ts
+  s_b45c549f48cfe4::t_17c5f8ff2839c8 1-10
+apps/web/agent/subagents/stakeholder/agent.ts
+  s_b45c549f48cfe4::t_343e04a928e4b0 3-4,8
+apps/web/package.json
+  s_b45c549f48cfe4::t_9b5404a4748a35 15
+docs/environment.md
+  s_b45c549f48cfe4::t_dd463df492aef2 5-9,13-16
+docs/release-runbook.md
+  s_b45c549f48cfe4::t_39f7d5a72e7b73 8-9
+pnpm-lock.yaml
+  s_b45c549f48cfe4::t_383cd813e6efee 49-51,269-277,8801-8806
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "53fcb28be8ec76797fee72eacebc7a35edb7be35",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
