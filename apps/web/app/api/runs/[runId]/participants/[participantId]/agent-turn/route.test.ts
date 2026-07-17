@@ -13,7 +13,8 @@ vi.mock('@/lib/run-api', () => ({ requireRunSession: mocks.requireSession }));
 vi.mock('@/lib/agent-turn-runtime', () => ({ getProductionAgentTurnService: vi.fn() }));
 
 const { createPostHandler } = await import('./route');
-const POST = createPostHandler(() => ({ turn: mocks.turn }));
+const getTurnService = vi.fn(() => ({ turn: mocks.turn }));
+const POST = createPostHandler(getTurnService);
 const runId = '018f4c8b-9ae2-7a72-86bd-4f867befef01';
 const participantId = '018f4c8b-9ae2-7a72-86bd-4f867befef02';
 const organizationId = '018f4c8b-9ae2-7a72-86bd-4f867befef03';
@@ -53,6 +54,7 @@ describe('participant agent turn route', () => {
     const body = await response.json();
 
     expect(mocks.requireSession).toHaveBeenCalledWith(organizationId, 'member');
+    expect(getTurnService).toHaveBeenCalledWith('http://localhost');
     expect(mocks.turn).toHaveBeenCalledWith({
       runId,
       participantId,

@@ -3,6 +3,12 @@ import { z } from 'zod';
 const localDatabaseUrl =
   'postgresql://readinessos:readinessos@localhost:5433/readinessos?schema=public';
 
+// .env 文件里的 KEY="" 会解析为空字符串，需在校验前转换为未配置。
+const optionalUrl = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.url().optional(),
+);
+
 const envSchema = z.object({
   DATABASE_URL: z.url(),
   AUTH_SECRET: z.string().min(16),
@@ -24,10 +30,9 @@ const envSchema = z.object({
     .max(2_147_483_647)
     .default(2_000_000),
   CRON_SECRET: z.string().min(16).optional(),
-  EVE_API_KEY: z.string().optional(),
-  EVE_BASE_URL: z.url().optional(),
-  OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
-  SENTRY_DSN: z.url().optional(),
+  EVE_RUNTIME_URL: optionalUrl,
+  OTEL_EXPORTER_OTLP_ENDPOINT: optionalUrl,
+  SENTRY_DSN: optionalUrl,
 });
 
 const rawEnv = {
@@ -52,8 +57,7 @@ const rawEnv = {
   AGENT_MAX_SUBAGENT_STEPS_PER_RUN: process.env.AGENT_MAX_SUBAGENT_STEPS_PER_RUN,
   AGENT_MAX_COST_MICRO_USD_PER_RUN: process.env.AGENT_MAX_COST_MICRO_USD_PER_RUN,
   CRON_SECRET: process.env.CRON_SECRET,
-  EVE_API_KEY: process.env.EVE_API_KEY,
-  EVE_BASE_URL: process.env.EVE_BASE_URL,
+  EVE_RUNTIME_URL: process.env.EVE_RUNTIME_URL,
   OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
   SENTRY_DSN: process.env.SENTRY_DSN,
 };

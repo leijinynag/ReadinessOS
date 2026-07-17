@@ -373,11 +373,9 @@ export class EveAgentRuntime implements AgentRuntime {
 export function createEveAgentRuntime(
   client: PrismaClient,
   host: string,
-  apiKey?: string,
 ): EveAgentRuntime {
   const eve = new Client({
     host,
-    ...(apiKey === undefined ? {} : { auth: { bearer: apiKey } }),
     redirect: 'error',
   });
   return new EveAgentRuntime(eve, new PrismaAgentRuntimeStore(client));

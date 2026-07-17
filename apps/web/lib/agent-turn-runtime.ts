@@ -7,16 +7,14 @@ import { env } from '@/lib/env';
 import { withSpan } from '@/lib/observability';
 import { getAgentRunBudget, requireAgentRunBudget } from '@/lib/release-policy';
 
-export function createProductionAgentTurnService(): AgentTurnService {
+export function createProductionAgentTurnService(origin: string): AgentTurnService {
   const observationService = new AgentObservationService(prisma);
   return new AgentTurnService({
     runtimeFactory() {
-      const host = env.EVE_BASE_URL?.trim();
-      if (!host) {
-        throw new Error('EVE_BASE_URL is required to run an agent turn.');
-      }
-      const apiKey = env.EVE_API_KEY?.trim() || undefined;
-      return createEveAgentRuntime(prisma, host, apiKey);
+      // 一体化部署时 Eve 会由 Next.js 将 /eve/v1 代理到动态 Runtime 端口，
+      // 因此服务端 Client 必须使用当前请求的绝对 Origin，不能使用相对地址。
+      const host = env.EVE_RUNTIME_URL?.trim() || origin;
+      return createEveAgentRuntime(prisma, host);
     },
     async buildObservation(input) {
       return withSpan('readinessos.agent.observation', { 'run.id': input.runId }, async () => {
@@ -46,8 +44,13 @@ export function createProductionAgentTurnService(): AgentTurnService {
   });
 }
 
-let service: AgentTurnService | undefined;
-export function getProductionAgentTurnService(): AgentTurnService {
-  service ??= createProductionAgentTurnService();
+const services = new Map<string, AgentTurnService>();
+
+export function getProductionAgentTurnService(origin: string): AgentTurnService {
+  let service = services.get(origin);
+  if (!service) {
+    service = createProductionAgentTurnService(origin);
+    services.set(origin, service);
+  }
   return service;
 }

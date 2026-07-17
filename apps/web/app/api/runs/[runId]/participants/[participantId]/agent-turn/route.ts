@@ -23,7 +23,9 @@ const bodySchema = z.discriminatedUnion('type', [
 ]);
 type RouteContext = { params: Promise<{ runId: string; participantId: string }> };
 
-export function createPostHandler(getTurnService: () => Pick<AgentTurnService, 'turn'>) {
+export function createPostHandler(
+  getTurnService: (origin: string) => Pick<AgentTurnService, 'turn'>,
+) {
   return async function POST(request: Request, context: RouteContext): Promise<Response> {
     try {
       const { runId, participantId } = await context.params;
@@ -52,7 +54,7 @@ export function createPostHandler(getTurnService: () => Pick<AgentTurnService, '
                 ...(parsed.response.text === undefined ? {} : { text: parsed.response.text }),
               },
             };
-      const result = await getTurnService().turn({
+      const result = await getTurnService(new URL(request.url).origin).turn({
         runId,
         participantId,
         organizationId: run.organizationId,

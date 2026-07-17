@@ -11,8 +11,8 @@
         "AUTH_DEMO_PASSWORD",
         "DEMO_LOGIN_ENABLED",
         "CRON_SECRET",
-        "EVE_API_KEY",
-        "EVE_BASE_URL",
+        "DEEPSEEK_API_KEY",
+        "EVE_RUNTIME_URL",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "SENTRY_DSN"
       ],
