@@ -1,0 +1,31 @@
+.env.example
+  s_b45c549f48cfe4::t_ffe0bb402b9cc3 33-35
+apps/web/app/api/runs/[runId]/participants/[participantId]/agent-turn/route.test.ts
+  s_b45c549f48cfe4::t_a900c8879676a5 16-17,57
+apps/web/app/api/runs/[runId]/participants/[participantId]/agent-turn/route.ts
+  s_b45c549f48cfe4::t_f323ac3e92a266 26-28,57
+apps/web/lib/agent-turn-runtime.ts
+  s_b45c549f48cfe4::t_29b9df98a036f1 10,14-17,47-54
+docs/release-runbook.md
+  s_b45c549f48cfe4::t_148f8efc68905c 8-10
+turbo.json
+  s_b45c549f48cfe4::t_ab5ee65415f5d1 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f34bd8f58c4b509126e489a14e621992fb038e9b",
+  "prompts": {},
+  "sessions": {
+    "s_b45c549f48cfe4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f32-2d7c-7c53-8f3e-8857a89cd26a",
+        "model": "unknown"
+      },
+      "human_author": "雷锦阳 <leijinyang686@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
