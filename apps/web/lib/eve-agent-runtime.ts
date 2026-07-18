@@ -157,8 +157,12 @@ export class PrismaAgentRuntimeStore {
           },
         },
         data: {
-          sessionId: state.sessionId ?? null,
-          continuationToken: state.continuationToken ?? null,
+          // Eve 只有 waiting_for_input 才允许用 continuation token 继续同一
+          // durable session。completed/failed/terminated 的下一次 Observation
+          // 必须创建新 session，不能错误复用已经结束的上下文。
+          sessionId: status === 'waiting_for_input' ? (state.sessionId ?? null) : null,
+          continuationToken:
+            status === 'waiting_for_input' ? (state.continuationToken ?? null) : null,
           streamIndex: state.streamIndex,
           status,
           metadata: json({
@@ -258,13 +262,17 @@ export class EveAgentRuntime implements AgentRuntime {
     validationContext: ProposedActionValidationContext,
     input: SendTurnInput<ProposedAction>,
   ): Promise<AgentTurnResult> {
-    const session = this.sessions.session({
-      streamIndex: handle.streamIndex,
-      ...(handle.sessionId === undefined ? {} : { sessionId: handle.sessionId }),
-      ...(handle.continuationToken === undefined
-        ? {}
-        : { continuationToken: handle.continuationToken }),
-    });
+    // continuation token 是 Eve 的唯一恢复凭据。没有它时，即使数据库仍有
+    // 已完成 sessionId，也必须从新的 durable session 开始一次 Observation。
+    const session = this.sessions.session(
+      handle.continuationToken === undefined
+        ? { streamIndex: 0 }
+        : {
+            streamIndex: handle.streamIndex,
+            ...(handle.sessionId === undefined ? {} : { sessionId: handle.sessionId }),
+            continuationToken: handle.continuationToken,
+          },
+    );
     let response: { result(): Promise<MessageResult<ProposedAction>> };
     const startedAt = performance.now();
     try {
@@ -338,6 +346,8 @@ export class EveAgentRuntime implements AgentRuntime {
       inputRequests: result.inputRequests.map((request) => ({
         requestId: request.requestId,
         prompt: request.prompt,
+        options: readInputRequestOptions(request),
+        allowFreeform: readAllowFreeform(request),
       })),
     };
   }
@@ -415,6 +425,33 @@ function objectValue(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function readInputRequestOptions(
+  request: unknown,
+): readonly { id: string; label: string }[] {
+  const options = objectValue(request).options;
+  if (!Array.isArray(options)) return [];
+  return options.flatMap((option) => {
+    const value = objectValue(option);
+    const id =
+      typeof value.id === 'string'
+        ? value.id
+        : typeof value.optionId === 'string'
+          ? value.optionId
+          : undefined;
+    const label =
+      typeof value.label === 'string'
+        ? value.label
+        : typeof value.text === 'string'
+          ? value.text
+          : id;
+    return id === undefined || label === undefined ? [] : [{ id, label }];
+  });
+}
+
+function readAllowFreeform(request: unknown): boolean {
+  return objectValue(request).allowFreeform === true;
 }
 
 function json(value: unknown): Prisma.InputJsonValue {

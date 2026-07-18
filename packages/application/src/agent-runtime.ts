@@ -8,18 +8,21 @@ const jsonRecordSchema = z.record(z.string(), z.unknown());
  */
 export const proposedActionSchema = z
   .object({
-    participantId: z.string().uuid(),
+    // advisor 是当前 Eve Session 所属的数据库参与方；target 才是 Kernel 中
+    // 被建议执行动作的场景参与方 ID。二者必须显式分离，避免建议被误解为执行。
+    advisorParticipantId: z.string().uuid(),
+    targetParticipantId: z.string().uuid(),
     actionType: z.string().min(1).max(128),
     parameters: jsonRecordSchema.default({}),
     rationale: z.string().min(1).max(4_000),
     evidenceRefs: z.array(z.string().min(1).max(256)).max(20).default([]),
     confidence: z.number().min(0).max(1),
-    clientRequestId: z.string().min(1).max(128),
   })
   .strict();
 export type ProposedAction = z.infer<typeof proposedActionSchema>;
 
 const availableActionSchema = z.object({
+  targetParticipantId: z.string().uuid(),
   type: z.string().min(1).max(128),
   label: z.string().min(1).max(256),
   parameterSchema: jsonRecordSchema.default({}),
@@ -68,6 +71,11 @@ export type AgentRuntimeStatus =
 export type AgentInputRequest = {
   requestId: string;
   prompt: string;
+  options: readonly {
+    id: string;
+    label: string;
+  }[];
+  allowFreeform: boolean;
 };
 
 export type AgentInputResponse = {
@@ -92,8 +100,13 @@ export interface AgentRuntime {
 }
 
 export const proposedActionValidationContextSchema = z.object({
-  participantId: z.string().uuid(),
-  allowedActionTypes: z.array(z.string().min(1).max(128)),
+  advisorParticipantId: z.string().uuid(),
+  allowedActions: z.array(
+    z.object({
+      targetParticipantId: z.string().uuid(),
+      actionType: z.string().min(1).max(128),
+    }),
+  ),
 });
 export type ProposedActionValidationContext = z.infer<typeof proposedActionValidationContextSchema>;
 
@@ -101,8 +114,11 @@ export function createProposedActionValidationContext(
   observation: Observation,
 ): ProposedActionValidationContext {
   return {
-    participantId: observation.participant.id,
-    allowedActionTypes: observation.availableActions.map((action) => action.type),
+    advisorParticipantId: observation.participant.id,
+    allowedActions: observation.availableActions.map((action) => ({
+      targetParticipantId: action.targetParticipantId,
+      actionType: action.type,
+    })),
   };
 }
 
@@ -111,11 +127,17 @@ export function validateProposedActionContext(
   candidate: unknown,
 ): ProposedAction {
   const action = proposedActionSchema.parse(candidate);
-  if (action.participantId !== context.participantId) {
-    throw new Error('Proposed action participant does not match the observation.');
+  if (action.advisorParticipantId !== context.advisorParticipantId) {
+    throw new Error('Proposed action advisor does not match the observation.');
   }
-  if (!context.allowedActionTypes.includes(action.actionType)) {
-    throw new Error('Proposed action is not available to this participant.');
+  if (
+    !context.allowedActions.some(
+      (allowed) =>
+        allowed.targetParticipantId === action.targetParticipantId &&
+        allowed.actionType === action.actionType,
+    )
+  ) {
+    throw new Error('Proposed action is not authorized for the selected target participant.');
   }
   return action;
 }

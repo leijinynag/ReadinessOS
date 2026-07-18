@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import type { ScenarioPack } from '@readinessos/scenario-sdk';
 import { observationSchema, type Observation } from './agent-runtime';
 
 const publicEventTypes = new Set([
@@ -19,6 +20,7 @@ export class AgentObservationService {
     runId: string;
     organizationId: string;
     participantId: string;
+    pack: ScenarioPack<unknown>;
     remainingTurns?: number;
     remainingTokens?: number;
   }): Promise<Observation> {
@@ -30,16 +32,35 @@ export class AgentObservationService {
         run: { organizationId: input.organizationId },
       },
       include: {
-        run: { select: { virtualTime: true } },
+        run: {
+          select: {
+            virtualTime: true,
+            // Observation 对 Eve 暴露的是当前 Run 的参与方主键。该 ID 可以被
+            // Recommendation 持久化并受外键保护；Kernel 静态 ID 只留在服务端映射。
+            participants: { select: { id: true, key: true } },
+          },
+        },
         projection: { select: { data: true } },
       },
     });
     if (!participant) throw new Error('Agent participant was not found.');
 
-    const capabilities = stringArray(participant.capabilities);
     const knowledgeScopes = new Set(stringArray(participant.knowledgeScopes));
     const projection = objectValue(participant.projection?.data);
     const kernelParticipantId = typeof projection.id === 'string' ? projection.id : participant.id;
+    const advisorPolicy = input.pack.agentPolicy?.advisors.find(
+      (policy) => policy.advisorParticipantKey === participant.key,
+    );
+    if (!advisorPolicy) {
+      throw new Error('Agent participant has no recommendation policy in this scenario.');
+    }
+    const packParticipants = new Map(
+      input.pack.participants.map((candidate) => [candidate.key, candidate]),
+    );
+    const runParticipants = new Map(
+      participant.run.participants.map((candidate) => [candidate.key, candidate]),
+    );
+    const packActions = new Map(input.pack.actions.map((action) => [action.key, action]));
     const events = await this.client.runEvent.findMany({
       where: { runId: input.runId, organizationId: input.organizationId },
       orderBy: { sequence: 'desc' },
@@ -73,11 +94,22 @@ export class AgentObservationService {
         type: event.type,
         summary: event.type,
       })),
-      availableActions: capabilities.map((type) => ({
-        type,
-        label: type,
-        parameterSchema: {},
-      })),
+      // 可建议动作来自 Pack 的显式授权，而非 advisor 自己的 capability。
+      // 目标参与方仍在 Kernel 命令提交时接受完整权限与前置条件校验。
+      availableActions: advisorPolicy.recommendationPermissions.flatMap((permission) => {
+        const target = packParticipants.get(permission.targetParticipantKey);
+        const runTarget = runParticipants.get(permission.targetParticipantKey);
+        const action = packActions.get(permission.actionType);
+        if (!target || !runTarget || !action) return [];
+        return [
+          {
+            targetParticipantId: runTarget.id,
+            type: action.key,
+            label: action.label,
+            parameterSchema: {},
+          },
+        ];
+      }),
       budget: {
         remainingTurns: input.remainingTurns ?? 1,
         remainingTokens: input.remainingTokens ?? 4_000,

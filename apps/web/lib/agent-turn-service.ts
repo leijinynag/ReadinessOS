@@ -27,10 +27,8 @@ type AgentTurnDependencies = {
     runId: string;
     organizationId: string;
     participantId: string;
-  }): Promise<void>;
+  }): Promise<{ agentKey: string }>;
 };
-
-const directorAgentKey = 'director';
 
 /**
  * Agent turn 只编排 Observation 和 Eve Session。该服务不持有 Run command、
@@ -40,11 +38,11 @@ export class AgentTurnService {
   constructor(private readonly dependencies: AgentTurnDependencies) {}
 
   async turn(request: AgentTurnRequest): Promise<AgentTurnResult> {
-    await this.dependencies.requireAgentParticipant(request);
+    const participant = await this.dependencies.requireAgentParticipant(request);
     const runtime = this.dependencies.runtimeFactory();
     const handle = await runtime.start({
       runParticipantId: request.participantId,
-      agentKey: directorAgentKey,
+      agentKey: participant.agentKey,
     });
     const status = await runtime.getStatus(handle);
 
@@ -58,15 +56,15 @@ export class AgentTurnService {
       return runtime.answerInput(handle, request.input.response);
     }
 
-    if (status !== 'active') {
+    if (status === 'waiting_for_input') {
       throw new ApplicationError(
-        status === 'waiting_for_input' ? 'APPROVAL_REQUIRED' : 'VALIDATION_ERROR',
-        status === 'waiting_for_input'
-          ? 'The agent session is waiting for input.'
-          : `The agent session cannot observe while ${status}.`,
+        'APPROVAL_REQUIRED',
+        'The agent session is waiting for input.',
       );
     }
 
+    // Eve completed/failed/terminated 后的观察会由 Runtime 开启新的 durable
+    // session；只有 waiting 状态需要并且只能通过 continuation 回答问题。
     const observation = await this.dependencies.buildObservation(request);
     return runtime.sendObservation(handle, observation);
   }

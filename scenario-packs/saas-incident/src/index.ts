@@ -210,6 +210,59 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       objectives: ['serviceAvailability'],
     },
   ],
+  agentPolicy: {
+    advisors: [
+      {
+        advisorParticipantKey: 'on-call-engineer',
+        triggerEventTypes: [
+          'run.started',
+          'inject.triggered',
+          'signal.emitted',
+          'action.executed',
+          'action.rejected',
+          'clock.advanced',
+        ],
+        recommendationPermissions: [
+          {
+            targetParticipantKey: 'incident-commander',
+            actionType: 'declare-incident',
+          },
+          { targetParticipantKey: 'on-call-engineer', actionType: 'inspect-metrics' },
+          { targetParticipantKey: 'on-call-engineer', actionType: 'freeze-payment-retries' },
+          { targetParticipantKey: 'on-call-engineer', actionType: 'disable-payment-writes' },
+          { targetParticipantKey: 'on-call-engineer', actionType: 'contact-provider' },
+          { targetParticipantKey: 'on-call-engineer', actionType: 'start-rollback' },
+          { targetParticipantKey: 'on-call-engineer', actionType: 'verify-recovery' },
+        ],
+      },
+      {
+        advisorParticipantKey: 'customer-support-lead',
+        triggerEventTypes: ['run.started', 'inject.triggered', 'signal.emitted', 'action.executed'],
+        recommendationPermissions: [
+          { targetParticipantKey: 'customer-support-lead', actionType: 'publish-status' },
+          { targetParticipantKey: 'customer-support-lead', actionType: 'notify-customers' },
+          {
+            targetParticipantKey: 'customer-support-lead',
+            actionType: 'start-duplicate-charge-reconciliation',
+          },
+        ],
+      },
+      {
+        advisorParticipantKey: 'executive-stakeholder',
+        triggerEventTypes: ['run.started', 'inject.triggered', 'signal.emitted', 'clock.advanced'],
+        recommendationPermissions: [
+          { targetParticipantKey: 'incident-commander', actionType: 'brief-executives' },
+        ],
+      },
+      {
+        advisorParticipantKey: 'payment-provider',
+        triggerEventTypes: ['signal.emitted', 'inject.triggered', 'action.executed'],
+        recommendationPermissions: [
+          { targetParticipantKey: 'on-call-engineer', actionType: 'verify-recovery' },
+        ],
+      },
+    ],
+  },
   signals: [
     {
       key: 'payment-service-outage',

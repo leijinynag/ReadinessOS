@@ -6,6 +6,7 @@ import { createEveAgentRuntime } from '@/lib/eve-agent-runtime';
 import { env } from '@/lib/env';
 import { withSpan } from '@/lib/observability';
 import { getAgentRunBudget, requireAgentRunBudget } from '@/lib/release-policy';
+import { runService } from '@/lib/run-runtime';
 
 export function createProductionAgentTurnService(origin: string): AgentTurnService {
   const observationService = new AgentObservationService(prisma);
@@ -19,8 +20,10 @@ export function createProductionAgentTurnService(origin: string): AgentTurnServi
     async buildObservation(input) {
       return withSpan('readinessos.agent.observation', { 'run.id': input.runId }, async () => {
         const budget = await getAgentRunBudget(prisma, input.runId);
+        const pack = await runService.getRunScenarioPack(input.runId, input.organizationId);
         return observationService.build({
           ...input,
+          pack,
           remainingTurns: budget.remainingTurns,
           remainingTokens: budget.remainingTokens,
         });
@@ -34,12 +37,13 @@ export function createProductionAgentTurnService(origin: string): AgentTurnServi
           controller: 'agent',
           run: { organizationId: input.organizationId, status: 'running' },
         },
-        select: { id: true, runId: true },
+        select: { id: true, runId: true, key: true },
       });
       if (!participant) {
         throw new ApplicationError('NOT_FOUND', 'Agent participant not found.');
       }
       await requireAgentRunBudget(prisma, participant.runId);
+      return { agentKey: participant.key };
     },
   });
 }

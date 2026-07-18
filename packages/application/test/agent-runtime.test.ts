@@ -14,18 +14,25 @@ const observation = observationSchema.parse({
   visibleState: { status: 'active' },
   visibleSignals: [],
   recentEvents: [],
-  availableActions: [{ type: 'publish_status', label: 'Publish', parameterSchema: {} }],
+  availableActions: [
+    {
+      targetParticipantId: '018f4c8b-9ae2-7a72-86bd-4f867befef02',
+      type: 'publish_status',
+      label: 'Publish',
+      parameterSchema: {},
+    },
+  ],
   budget: { remainingTurns: 1, remainingTokens: 1000 },
 });
 
 const proposal = {
-  participantId: observation.participant.id,
+  advisorParticipantId: observation.participant.id,
+  targetParticipantId: observation.participant.id,
   actionType: 'publish_status',
   parameters: { message: 'Investigating' },
   rationale: 'Customers need an update.',
   evidenceRefs: [],
   confidence: 0.8,
-  clientRequestId: 'proposal-1',
 };
 
 describe('Agent runtime contracts', () => {
@@ -36,11 +43,11 @@ describe('Agent runtime contracts', () => {
   it('拒绝未知动作和其他参与方动作', () => {
     expect(() =>
       validateProposedAction(observation, { ...proposal, actionType: 'delete_run' }),
-    ).toThrow('not available');
+    ).toThrow('not authorized');
     expect(() =>
       validateProposedAction(observation, {
         ...proposal,
-        participantId: '018f4c8b-9ae2-7a72-86bd-4f867befef03',
+        advisorParticipantId: '018f4c8b-9ae2-7a72-86bd-4f867befef03',
       }),
     ).toThrow('does not match');
   });

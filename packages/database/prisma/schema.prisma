@@ -64,6 +64,31 @@ enum RemediationStatus {
   resolved
 }
 
+enum AgentRecommendationStatus {
+  pending
+  adopted
+  modified
+  rejected
+  deferred
+  superseded
+  expired
+}
+
+enum AgentDispatchStatus {
+  pending
+  running
+  waiting_for_input
+  completed
+  failed
+}
+
+enum AgentDecisionType {
+  adopt
+  modify
+  reject
+  defer
+}
+
 model Organization {
   id        String   @id @default(uuid()) @db.Uuid
   slug      String   @unique
@@ -158,6 +183,7 @@ model SimulationRun {
   seed                 Int
   virtualTime          Int       @default(0) @map("virtual_time")
   latestSequence       Int       @default(0) @map("latest_sequence")
+  agentActivitySequence Int      @default(0) @map("agent_activity_sequence")
   startedAt            DateTime? @map("started_at")
   completedAt          DateTime? @map("completed_at")
   expiresAt            DateTime? @map("expires_at")
@@ -189,6 +215,10 @@ model SimulationRun {
   evidences        Evidence[]
   evaluations      Evaluation[]
   remediationItems RemediationItem[]
+  agentRecommendations AgentRecommendation[]
+  agentDispatches      AgentDispatch[]
+  agentQuestions       AgentQuestion[]
+  agentActivities      AgentActivity[]
 
   @@unique([organizationId, createdById, createIdempotencyKey])
   @@index([organizationId, status, createdAt])
@@ -230,8 +260,11 @@ model RunParticipant {
   run               SimulationRun          @relation(fields: [runId], references: [id], onDelete: Cascade)
   projection        ParticipantProjection?
   agentSessionLinks AgentSessionLink[]
-  agentTraces       AgentTrace[]
-  usageLedger       UsageLedger[]
+  agentTraces                 AgentTrace[]
+  usageLedger                 UsageLedger[]
+  authoredAgentRecommendations AgentRecommendation[] @relation("AgentRecommendationAdvisor")
+  targetedAgentRecommendations AgentRecommendation[] @relation("AgentRecommendationTarget")
+  agentDispatches             AgentDispatch[]
 
   @@unique([runId, key])
   @@index([runId, controller])
@@ -322,22 +355,135 @@ model Approval {
 }
 
 model Decision {
-  id         String   @id @default(uuid()) @db.Uuid
-  runId      String   @map("run_id") @db.Uuid
-  approvalId String?  @unique @map("approval_id") @db.Uuid
-  sequence   Int
-  decision   String
-  actorId    String?  @map("actor_id") @db.Uuid
-  actorName  String?  @map("actor_name")
-  rationale  String?
-  createdAt  DateTime @default(now()) @map("created_at")
+  id                   String             @id @default(uuid()) @db.Uuid
+  runId                String             @map("run_id") @db.Uuid
+  approvalId           String?            @unique @map("approval_id") @db.Uuid
+  recommendationId     String?            @map("recommendation_id") @db.Uuid
+  sequence             Int?
+  decision             String
+  agentDecisionType    AgentDecisionType? @map("agent_decision_type")
+  actorId              String?            @map("actor_id") @db.Uuid
+  actorName            String?            @map("actor_name")
+  rationale            String?
+  modifiedActionType   String?            @map("modified_action_type")
+  modifiedParameters   Json?              @map("modified_parameters")
+  kernelCommandId      String?            @map("kernel_command_id") @db.Uuid
+  executionSequence    Int?               @map("execution_sequence")
+  createdAt            DateTime           @default(now()) @map("created_at")
 
-  run      SimulationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  approval Approval?     @relation(fields: [approvalId], references: [id], onDelete: SetNull)
+  run            SimulationRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  approval       Approval?            @relation(fields: [approvalId], references: [id], onDelete: SetNull)
+  recommendation AgentRecommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+
+  @@index([recommendationId])
+  @@index([runId, sequence])
+  @@index([runId, createdAt])
+  @@map("decisions")
+}
+
+model AgentRecommendation {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  organizationId       String                    @map("organization_id") @db.Uuid
+  runId                String                    @map("run_id") @db.Uuid
+  advisorParticipantId String                    @map("advisor_participant_id") @db.Uuid
+  targetParticipantId  String                    @map("target_participant_id") @db.Uuid
+  actionType           String                    @map("action_type")
+  parameters           Json                      @default("{}")
+  rationale            String
+  evidenceRefs         Json                      @default("[]") @map("evidence_refs")
+  confidence           Float
+  triggerEventTypes    Json                      @default("[]") @map("trigger_event_types")
+  triggerSequences     Json                      @default("[]") @map("trigger_sequences")
+  observationHash      String                    @map("observation_hash")
+  baseRunVersion       Int                       @map("base_run_version")
+  baseVirtualTime      Int                       @map("base_virtual_time")
+  expiresAtVirtualTime Int                       @map("expires_at_virtual_time")
+  eveSessionId         String?                   @map("eve_session_id")
+  eveTraceIdentity     String?                   @map("eve_trace_identity")
+  status               AgentRecommendationStatus @default(pending)
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+
+  run          SimulationRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  advisor      RunParticipant @relation("AgentRecommendationAdvisor", fields: [advisorParticipantId], references: [id], onDelete: Cascade)
+  target       RunParticipant @relation("AgentRecommendationTarget", fields: [targetParticipantId], references: [id], onDelete: Cascade)
+  questions    AgentQuestion[]
+  decisions    Decision[]
+  activities   AgentActivity[]
+
+  @@index([runId, status, createdAt(sort: Desc)])
+  @@index([advisorParticipantId, status])
+  @@map("agent_recommendations")
+}
+
+model AgentDispatch {
+  id                   String              @id @default(uuid()) @db.Uuid
+  organizationId       String              @map("organization_id") @db.Uuid
+  runId                String              @map("run_id") @db.Uuid
+  advisorParticipantId String              @map("advisor_participant_id") @db.Uuid
+  status               AgentDispatchStatus @default(pending)
+  activeKey            String?             @unique @map("active_key")
+  requestKind          String              @default("automatic") @map("request_kind")
+  triggerEventTypes    Json                @default("[]") @map("trigger_event_types")
+  triggerSequences     Json                @default("[]") @map("trigger_sequences")
+  baseRunVersion       Int                 @map("base_run_version")
+  observationHash      String?             @map("observation_hash")
+  attempts             Int                 @default(0)
+  nextAttemptAt        DateTime            @default(now()) @map("next_attempt_at")
+  lockedAt             DateTime?           @map("locked_at")
+  lastError            String?             @map("last_error")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  run        SimulationRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  advisor    RunParticipant @relation(fields: [advisorParticipantId], references: [id], onDelete: Cascade)
+  questions  AgentQuestion[]
+  activities AgentActivity[]
+
+  @@index([runId, status, nextAttemptAt])
+  @@index([advisorParticipantId, status])
+  @@map("agent_dispatches")
+}
+
+model AgentQuestion {
+  id               String   @id @default(uuid()) @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  dispatchId       String   @map("dispatch_id") @db.Uuid
+  recommendationId String?  @map("recommendation_id") @db.Uuid
+  requestId        String   @unique @map("request_id")
+  prompt           String
+  options          Json     @default("[]")
+  allowFreeform    Boolean  @default(false) @map("allow_freeform")
+  answer           Json?
+  answeredById     String?  @map("answered_by_id") @db.Uuid
+  answeredAt       DateTime? @map("answered_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  run            SimulationRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  dispatch       AgentDispatch        @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  recommendation AgentRecommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+
+  @@index([runId, answeredAt])
+  @@map("agent_questions")
+}
+
+model AgentActivity {
+  id               String   @id @default(uuid()) @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  sequence         Int
+  type             String
+  dispatchId       String?  @map("dispatch_id") @db.Uuid
+  recommendationId String?  @map("recommendation_id") @db.Uuid
+  data             Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  run            SimulationRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  dispatch       AgentDispatch?       @relation(fields: [dispatchId], references: [id], onDelete: SetNull)
+  recommendation AgentRecommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
 
   @@unique([runId, sequence])
   @@index([runId, createdAt])
-  @@map("decisions")
+  @@map("agent_activities")
 }
 
 model Evaluation {

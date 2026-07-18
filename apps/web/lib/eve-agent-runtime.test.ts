@@ -20,13 +20,13 @@ describe('EveAgentRuntime contract', () => {
   it('持久化 session/trace 并只返回校验后的 ProposedAction', async () => {
     const fixture = await createAgentFixture();
     const proposal = {
-      participantId: fixture.participantId,
+      advisorParticipantId: fixture.participantId,
+      targetParticipantId: fixture.participantId,
       actionType: 'publish_status',
       parameters: {},
       rationale: 'Update customers.',
       evidenceRefs: [],
       confidence: 0.9,
-      clientRequestId: 'request-1',
     };
     const runtime = new EveAgentRuntime(
       fakeSessions({ status: 'completed', data: proposal }),
@@ -47,13 +47,13 @@ describe('EveAgentRuntime contract', () => {
   it('记录 Agent Turn、延迟和 Eve 返回的 Token 与费用', async () => {
     const fixture = await createAgentFixture();
     const proposal = {
-      participantId: fixture.participantId,
+      advisorParticipantId: fixture.participantId,
+      targetParticipantId: fixture.participantId,
       actionType: 'publish_status',
       parameters: {},
       rationale: 'Update customers.',
       evidenceRefs: [],
       confidence: 0.9,
-      clientRequestId: 'request-usage',
     };
     const runtime = new EveAgentRuntime(
       fakeSessions({
@@ -134,13 +134,13 @@ describe('EveAgentRuntime contract', () => {
       fakeSessions({
         status: 'completed',
         data: {
-          participantId: fixture.participantId,
+          advisorParticipantId: fixture.participantId,
+          targetParticipantId: fixture.participantId,
           actionType: 'publish_status',
           parameters: {},
           rationale: 'Update customers.',
           evidenceRefs: [],
           confidence: 0.9,
-          clientRequestId: 'request-no-usage',
         },
       }),
       new PrismaAgentRuntimeStore(prisma),
@@ -274,13 +274,13 @@ describe('EveAgentRuntime contract', () => {
       {
         status: 'completed',
         data: {
-          participantId: fixture.participantId,
+          advisorParticipantId: fixture.participantId,
+          targetParticipantId: fixture.participantId,
           actionType: 'delete_run',
           parameters: {},
           rationale: 'invalid',
           evidenceRefs: [],
           confidence: 1,
-          clientRequestId: 'request-2',
         },
       },
     ]);
@@ -304,13 +304,13 @@ describe('EveAgentRuntime contract', () => {
       {
         status: 'completed',
         data: {
-          participantId: randomUUID(),
+          advisorParticipantId: randomUUID(),
+          targetParticipantId: fixture.participantId,
           actionType: 'publish_status',
           parameters: {},
           rationale: 'wrong participant',
           evidenceRefs: [],
           confidence: 1,
-          clientRequestId: 'request-3',
         },
       },
     ]);
@@ -457,7 +457,14 @@ function observation(fixture: { organizationId: string; runId: string; participa
     visibleState: {},
     visibleSignals: [],
     recentEvents: [],
-    availableActions: [{ type: 'publish_status', label: 'Publish', parameterSchema: {} }],
+    availableActions: [
+      {
+        targetParticipantId: fixture.participantId,
+        type: 'publish_status',
+        label: 'Publish',
+        parameterSchema: {},
+      },
+    ],
     budget: { remainingTurns: 1, remainingTokens: 1000 },
   };
 }

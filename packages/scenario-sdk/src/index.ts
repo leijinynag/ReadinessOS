@@ -23,6 +23,25 @@ export interface UIContribution {
   readonly statePath: readonly string[];
 }
 
+/**
+ * Agent Policy 只说明角色可以建议什么，不会向 Agent 授予任何执行权限。
+ * Kernel 仍会对目标参与方的权限、前置条件与审批策略做最终裁决。
+ */
+export interface AgentRecommendationPermission {
+  readonly targetParticipantKey: string;
+  readonly actionType: string;
+}
+
+export interface AgentAdvisorPolicy {
+  readonly advisorParticipantKey: string;
+  readonly triggerEventTypes: readonly string[];
+  readonly recommendationPermissions: readonly AgentRecommendationPermission[];
+}
+
+export interface AgentPolicy {
+  readonly advisors: readonly AgentAdvisorPolicy[];
+}
+
 export interface ScenarioPack<TState> extends ScenarioDefinition<TState> {
   readonly manifest: PackManifest;
   readonly stateSchema: z.ZodType<TState>;
@@ -32,6 +51,7 @@ export interface ScenarioPack<TState> extends ScenarioDefinition<TState> {
   readonly injects: readonly InjectDefinition<TState>[];
   readonly evaluators: readonly EvaluatorDefinition<TState>[];
   readonly uiContributions: readonly UIContribution[];
+  readonly agentPolicy?: AgentPolicy;
 }
 
 export interface ScenarioPackContractResult {
@@ -84,6 +104,57 @@ export function validateScenarioPack<TState>(
     }
   }
 
+  if (pack.agentPolicy) {
+    const participants = new Map(pack.participants.map((participant) => [participant.key, participant]));
+    const actions = new Map(pack.actions.map((action) => [action.key, action]));
+    const advisors = new Set<string>();
+    for (const advisor of pack.agentPolicy.advisors) {
+      if (advisors.has(advisor.advisorParticipantKey)) {
+        errors.push(`Agent advisor 重复：${advisor.advisorParticipantKey}。`);
+      }
+      advisors.add(advisor.advisorParticipantKey);
+
+      const advisorParticipant = participants.get(advisor.advisorParticipantKey);
+      if (!advisorParticipant) {
+        errors.push(`Agent advisor 不存在：${advisor.advisorParticipantKey}。`);
+      } else if (advisorParticipant.controller !== 'agent') {
+        errors.push(`Agent advisor 必须是 agent 参与方：${advisor.advisorParticipantKey}。`);
+      }
+      if (advisor.triggerEventTypes.length === 0) {
+        errors.push(`Agent advisor ${advisor.advisorParticipantKey} 必须声明触发事件。`);
+      }
+
+      const permissions = new Set<string>();
+      for (const permission of advisor.recommendationPermissions) {
+        const key = `${permission.targetParticipantKey}:${permission.actionType}`;
+        if (permissions.has(key)) {
+          errors.push(`Agent advisor ${advisor.advisorParticipantKey} 的建议动作重复：${key}。`);
+        }
+        permissions.add(key);
+
+        const target = participants.get(permission.targetParticipantKey);
+        const action = actions.get(permission.actionType);
+        if (!target) {
+          errors.push(`Agent 建议目标不存在：${permission.targetParticipantKey}。`);
+          continue;
+        }
+        if (!action) {
+          errors.push(`Agent 建议动作不存在：${permission.actionType}。`);
+          continue;
+        }
+        if (!containsAll(target.capabilities, action.requiredCapabilities)) {
+          errors.push(`建议目标 ${target.key} 没有动作 ${action.key} 所需 capability。`);
+        }
+        if (!containsAll(target.permissions, action.requiredPermissions)) {
+          errors.push(`建议目标 ${target.key} 没有动作 ${action.key} 所需 permission。`);
+        }
+        if (!containsAll(target.knowledgeScopes, action.requiredKnowledgeScopes)) {
+          errors.push(`建议目标 ${target.key} 没有动作 ${action.key} 所需 knowledge scope。`);
+        }
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
@@ -112,4 +183,8 @@ function isSafePathPart(part: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function containsAll(values: readonly string[], required: readonly string[] | undefined): boolean {
+  return required?.every((item) => values.includes(item)) ?? true;
 }

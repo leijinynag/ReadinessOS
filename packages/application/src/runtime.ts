@@ -129,11 +129,56 @@ export type ReviewSummary = {
   approvals: readonly ApprovalSummary[];
   decisions: readonly {
     id: string;
-    sequence: number;
+    sequence: number | undefined;
     decision: string;
     approvalId: string | undefined;
+    recommendationId: string | undefined;
+    agentDecisionType: 'adopt' | 'modify' | 'reject' | 'defer' | undefined;
     actorName: string | undefined;
+    rationale: string | undefined;
+    modifiedActionType: string | undefined;
+    modifiedParameters: Record<string, unknown> | undefined;
+    kernelCommandId: string | undefined;
+    executionSequence: number | undefined;
     createdAt: string;
+  }[];
+  agentCausalChain: readonly {
+    recommendationId: string;
+    advisorParticipantId: string;
+    advisorKey: string;
+    advisorDisplayName: string;
+    targetParticipantId: string;
+    targetDisplayName: string;
+    actionType: string;
+    parameters: Record<string, unknown>;
+    rationale: string;
+    evidenceRefs: readonly string[];
+    confidence: number;
+    status: string;
+    triggerEventTypes: readonly string[];
+    triggerSequences: readonly number[];
+    baseRunVersion: number;
+    baseVirtualTime: number;
+    expiresAtVirtualTime: number;
+    decision:
+      | {
+          id: string;
+          type: 'adopt' | 'modify' | 'reject' | 'defer';
+          actorName: string | undefined;
+          rationale: string | undefined;
+          modifiedActionType: string | undefined;
+          executionSequence: number | undefined;
+          kernelCommandId: string | undefined;
+          createdAt: string;
+        }
+      | undefined;
+    subsequentEvents: readonly { sequence: number; type: string }[];
+    subsequentEvaluations: readonly {
+      evaluatorKey: string;
+      sequence: number;
+      score: number;
+      summary: string;
+    }[];
   }[];
   evaluations: readonly {
     id: string;
@@ -920,6 +965,7 @@ export class PrismaRunRepository {
       timeline,
       approvals,
       decisions,
+      recommendations,
       evaluations,
       remediationItems,
       checkpoints,
@@ -935,7 +981,15 @@ export class PrismaRunRepository {
       this.listApprovals(runId, organizationId),
       this.client.decision.findMany({
         where: { runId },
-        orderBy: { sequence: 'asc' },
+        orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }],
+      }),
+      this.client.agentRecommendation.findMany({
+        where: { runId, organizationId },
+        include: {
+          advisor: { select: { key: true, displayName: true } },
+          target: { select: { displayName: true } },
+        },
+        orderBy: { createdAt: 'asc' },
       }),
       this.client.evaluation.findMany({
         where: { runId },
@@ -975,12 +1029,79 @@ export class PrismaRunRepository {
       approvals,
       decisions: decisions.map((decision) => ({
         id: decision.id,
-        sequence: decision.sequence,
+        sequence: decision.sequence ?? undefined,
         decision: decision.decision,
         approvalId: decision.approvalId ?? undefined,
+        recommendationId: decision.recommendationId ?? undefined,
+        agentDecisionType: decision.agentDecisionType ?? undefined,
         actorName: decision.actorName ?? undefined,
+        rationale: decision.rationale ?? undefined,
+        modifiedActionType: decision.modifiedActionType ?? undefined,
+        modifiedParameters:
+          decision.modifiedParameters === null
+            ? undefined
+            : jsonRecordOrEmpty(decision.modifiedParameters),
+        kernelCommandId: decision.kernelCommandId ?? undefined,
+        executionSequence: decision.executionSequence ?? undefined,
         createdAt: decision.createdAt.toISOString(),
       })),
+      agentCausalChain: recommendations.map((recommendation) => {
+        const decision = decisions
+          .filter((candidate) => candidate.recommendationId === recommendation.id)
+          .at(-1);
+        const decisionSequence = decision?.executionSequence ?? undefined;
+        return {
+          recommendationId: recommendation.id,
+          advisorParticipantId: recommendation.advisorParticipantId,
+          advisorKey: recommendation.advisor.key,
+          advisorDisplayName: recommendation.advisor.displayName,
+          targetParticipantId: recommendation.targetParticipantId,
+          targetDisplayName: recommendation.target.displayName,
+          actionType: recommendation.actionType,
+          parameters: jsonRecordOrEmpty(recommendation.parameters),
+          rationale: recommendation.rationale,
+          evidenceRefs: stringArray(recommendation.evidenceRefs),
+          confidence: recommendation.confidence,
+          status: recommendation.status,
+          triggerEventTypes: stringArray(recommendation.triggerEventTypes),
+          triggerSequences: numberArray(recommendation.triggerSequences),
+          baseRunVersion: recommendation.baseRunVersion,
+          baseVirtualTime: recommendation.baseVirtualTime,
+          expiresAtVirtualTime: recommendation.expiresAtVirtualTime,
+          decision:
+            decision?.agentDecisionType === null || decision?.agentDecisionType === undefined
+              ? undefined
+              : {
+                  id: decision.id,
+                  type: decision.agentDecisionType,
+                  actorName: decision.actorName ?? undefined,
+                  rationale: decision.rationale ?? undefined,
+                  modifiedActionType: decision.modifiedActionType ?? undefined,
+                  executionSequence: decision.executionSequence ?? undefined,
+                  kernelCommandId: decision.kernelCommandId ?? undefined,
+                  createdAt: decision.createdAt.toISOString(),
+                },
+          // Agent 活动不是重放输入。这里仅把已发生在提交之后的领域结果关联给
+          // Review，帮助 IC 回看“建议 - 裁决 - 后果”的完整路径。
+          subsequentEvents:
+            decisionSequence === undefined
+              ? []
+              : timeline
+                  .filter((event) => event.sequence > decisionSequence)
+                  .map((event) => ({ sequence: event.sequence, type: event.type })),
+          subsequentEvaluations:
+            decisionSequence === undefined
+              ? []
+              : evaluations
+                  .filter((evaluation) => evaluation.sequence >= decisionSequence)
+                  .map((evaluation) => ({
+                    evaluatorKey: evaluation.evaluatorKey,
+                    sequence: evaluation.sequence,
+                    score: evaluation.score,
+                    summary: evaluation.summary,
+                  })),
+        };
+      }),
       evaluations: evaluations.map((evaluation) => ({
         id: evaluation.id,
         evaluatorKey: evaluation.evaluatorKey,
@@ -2509,6 +2630,18 @@ function jsonRecordOrEmpty(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function numberArray(value: unknown): number[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === 'number' && Number.isInteger(item))
+    : [];
 }
 
 function readRequiredString(value: Record<string, unknown>, key: string): string {

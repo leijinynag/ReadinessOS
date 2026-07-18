@@ -1,4 +1,8 @@
-export { Prisma } from '@prisma/client';
+export {
+  AgentDecisionType,
+  AgentRecommendationStatus,
+  Prisma,
+} from '@prisma/client';
 export type { PrismaClient } from '@prisma/client';
 export { prisma } from './prisma';
 export {
