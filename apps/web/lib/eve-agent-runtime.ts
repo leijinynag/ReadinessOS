@@ -1,6 +1,7 @@
 import type {
   AgentHandle,
   AgentInputResponse,
+  AgentObservationIntent,
   AgentRuntime,
   AgentRuntimeStatus,
   AgentTurnResult,
@@ -213,10 +214,17 @@ export class EveAgentRuntime implements AgentRuntime {
     return this.store.loadOrCreate(input.runParticipantId, input.agentKey);
   }
 
-  async sendObservation(handle: AgentHandle, observation: Observation): Promise<AgentTurnResult> {
+  async sendObservation(
+    handle: AgentHandle,
+    observation: Observation,
+    options?: { intent: AgentObservationIntent },
+  ): Promise<AgentTurnResult> {
     const context = createProposedActionValidationContext(observation);
     return this.send(handle, context, {
-      message: '请根据当前 Observation 返回一个合法 ProposedAction。',
+      message:
+        options?.intent === 'compare'
+          ? 'IC 请求你比较当前角色可建议的备选方案。请在内部完成比较后，只返回一条最高优先级、合法的 ProposedAction，并在 rationale 中说明取舍。'
+          : '请根据当前 Observation 返回一条最高优先级、合法的 ProposedAction。',
       clientContext: JSON.stringify(observation),
       outputSchema: proposedActionSchema,
     });
@@ -328,6 +336,14 @@ export class EveAgentRuntime implements AgentRuntime {
             },
           ];
     const persistedStatus = validationError === undefined ? status : 'failed';
+    const traceEvents =
+      events.length > 0 ? events : [{ type: 'adapter.turn_completed', data: {} }];
+    const sessionIdentity = session.state.sessionId ?? `pending:${handle.sessionId ?? handle.agentKey}`;
+    const traceIdentity = createTraceIdentity({
+      runParticipantId: handle.runParticipantId,
+      sessionIdentity,
+      streamIndex: handle.streamIndex + traceEvents.length - 1,
+    });
     const nextHandle = await this.store.persist(
       handle,
       session.state,
@@ -349,6 +365,8 @@ export class EveAgentRuntime implements AgentRuntime {
         options: readInputRequestOptions(request),
         allowFreeform: readAllowFreeform(request),
       })),
+      ...(session.state.sessionId === undefined ? {} : { eveSessionId: session.state.sessionId }),
+      eveTraceIdentity: traceIdentity,
     };
   }
 

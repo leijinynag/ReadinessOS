@@ -21,14 +21,17 @@ describe('AgentTurnService', () => {
   it('服务端构造 Observation 并调用受控 AgentRuntime', async () => {
     const runtime = fakeRuntime('active');
     const buildObservation = vi.fn().mockResolvedValue(observation);
-    const requireAgentParticipant = vi.fn().mockResolvedValue(undefined);
+    const requireAgentParticipant = vi.fn().mockResolvedValue({ agentKey: 'director' });
     const service = new AgentTurnService({
       runtimeFactory: () => runtime,
       buildObservation,
       requireAgentParticipant,
     });
 
-    await expect(service.turn(request({ type: 'observe' }))).resolves.toBe(result);
+    await expect(service.turn(request({ type: 'observe' }))).resolves.toMatchObject({
+      ...result,
+      observationHash: expect.any(String),
+    });
     expect(requireAgentParticipant).toHaveBeenCalledOnce();
     expect(runtime.start).toHaveBeenCalledWith({
       runParticipantId: handle.runParticipantId,
@@ -45,7 +48,7 @@ describe('AgentTurnService', () => {
     const service = new AgentTurnService({
       runtimeFactory: () => runtime,
       buildObservation,
-      requireAgentParticipant: vi.fn(),
+      requireAgentParticipant: vi.fn().mockResolvedValue({ agentKey: 'director' }),
     });
     const input = {
       type: 'input-response' as const,
@@ -71,32 +74,49 @@ describe('AgentTurnService', () => {
     expect(runtimeFactory).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['completed', 'observe while completed'],
-    ['failed', 'observe while failed'],
-    ['terminated', 'observe while terminated'],
-  ] as const)('拒绝 %s session 接收 observe', async (status, message) => {
+  it.each(['completed', 'failed', 'terminated'] as const)(
+    '%s session 会为新的 Observation 创建 durable session',
+    async (status) => {
     const runtime = fakeRuntime(status);
+    const buildObservation = vi.fn().mockResolvedValue(observation);
     const service = new AgentTurnService({
       runtimeFactory: () => runtime,
-      buildObservation: vi.fn(),
-      requireAgentParticipant: vi.fn(),
+      buildObservation,
+      requireAgentParticipant: vi.fn().mockResolvedValue({ agentKey: 'director' }),
     });
 
-    await expect(service.turn(request({ type: 'observe' }))).rejects.toThrow(message);
-    expect(runtime.sendObservation).not.toHaveBeenCalled();
-  });
+      await expect(service.turn(request({ type: 'observe' }))).resolves.toMatchObject({
+        ...result,
+        observationHash: expect.any(String),
+      });
+      expect(buildObservation).toHaveBeenCalledOnce();
+      expect(runtime.sendObservation).toHaveBeenCalledWith(handle, observation);
+    },
+  );
 
   it('waiting session 拒绝 observe 并要求继续 HITL', async () => {
     const runtime = fakeRuntime('waiting_for_input');
     const service = new AgentTurnService({
       runtimeFactory: () => runtime,
       buildObservation: vi.fn(),
-      requireAgentParticipant: vi.fn(),
+      requireAgentParticipant: vi.fn().mockResolvedValue({ agentKey: 'director' }),
     });
 
     await expect(service.turn(request({ type: 'observe' }))).rejects.toThrow('waiting for input');
     expect(runtime.sendObservation).not.toHaveBeenCalled();
+  });
+
+  it('比较方案请求会明确传给受控 Runtime，但仍只构造一次 Observation', async () => {
+    const runtime = fakeRuntime('completed');
+    const service = new AgentTurnService({
+      runtimeFactory: () => runtime,
+      buildObservation: vi.fn().mockResolvedValue(observation),
+      requireAgentParticipant: vi.fn().mockResolvedValue({ agentKey: 'director' }),
+    });
+
+    await service.turn(request({ type: 'observe', intent: 'compare' }));
+
+    expect(runtime.sendObservation).toHaveBeenCalledWith(handle, observation, { intent: 'compare' });
   });
 });
 

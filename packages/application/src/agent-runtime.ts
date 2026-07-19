@@ -89,11 +89,29 @@ export type AgentTurnResult = {
   status: AgentRuntimeStatus;
   proposedAction: ProposedAction | undefined;
   inputRequests: readonly AgentInputRequest[];
+  /**
+   * 仅在发送 Observation 时生成。平台把它存入 Recommendation，确保 IC 能够
+   * 回溯建议确实基于哪一份角色可见事实，而不是只依赖触发事件的元数据。
+   */
+  observationHash?: string;
+  /** Eve durable session 与 Trace 仅用于审计，不能作为业务事实或执行凭据。 */
+  eveSessionId?: string;
+  eveTraceIdentity?: string;
 };
+
+/**
+ * `compare` 不是让 Agent 生成多条可执行动作，而是要求它在角色授权范围内
+ * 比较备选方案后，仍只输出一条当前最高优先级建议。
+ */
+export type AgentObservationIntent = 'recommend' | 'compare';
 
 export interface AgentRuntime {
   start(input: { runParticipantId: string; agentKey: string }): Promise<AgentHandle>;
-  sendObservation(handle: AgentHandle, observation: Observation): Promise<AgentTurnResult>;
+  sendObservation(
+    handle: AgentHandle,
+    observation: Observation,
+    options?: { intent: AgentObservationIntent },
+  ): Promise<AgentTurnResult>;
   answerInput(handle: AgentHandle, response: AgentInputResponse): Promise<AgentTurnResult>;
   terminate(handle: AgentHandle): Promise<void>;
   getStatus(handle: AgentHandle): Promise<AgentRuntimeStatus>;

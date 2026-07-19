@@ -1,13 +1,16 @@
 import type {
+  AgentObservationIntent,
   AgentInputResponse,
   AgentRuntime,
   AgentTurnResult,
   Observation,
 } from '@readinessos/application';
 import { ApplicationError } from '@readinessos/domain-events';
+import { createHash } from 'node:crypto';
 
 export type AgentTurnInput =
-  { type: 'observe' } | { type: 'input-response'; response: AgentInputResponse };
+  | { type: 'observe'; intent?: AgentObservationIntent }
+  | { type: 'input-response'; response: AgentInputResponse };
 
 export type AgentTurnRequest = {
   runId: string;
@@ -66,6 +69,15 @@ export class AgentTurnService {
     // Eve completed/failed/terminated 后的观察会由 Runtime 开启新的 durable
     // session；只有 waiting 状态需要并且只能通过 continuation 回答问题。
     const observation = await this.dependencies.buildObservation(request);
-    return runtime.sendObservation(handle, observation);
+    const result =
+      request.input.intent === undefined || request.input.intent === 'recommend'
+        ? await runtime.sendObservation(handle, observation)
+        : await runtime.sendObservation(handle, observation, { intent: request.input.intent });
+    return {
+      ...result,
+      observationHash: createHash('sha256')
+        .update(JSON.stringify(observation))
+        .digest('hex'),
+    };
   }
 }

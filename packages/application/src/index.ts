@@ -37,6 +37,7 @@ export {
   type AgentHandle,
   type AgentInputRequest,
   type AgentInputResponse,
+  type AgentObservationIntent,
   type AgentRuntime,
   type AgentRuntimeStatus,
   type AgentTurnResult,

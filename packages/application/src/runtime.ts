@@ -2037,6 +2037,9 @@ export class RuntimeOutboxPublisher {
       try {
         if (message.topic === 'run.event') {
           this.hub.publish(outboxEventPayloadSchema.parse(message.payload));
+          // run.event 同时是浏览器事件流和 Agent 调度的事实入口。先发布给 Hub，
+          // 再由可选 handler 异步派生非权威 Agent 工作，二者都不改变领域结果。
+          await this.handlers['run.event']?.handle(message);
         } else {
           const handler = this.handlers[message.topic];
           if (!handler) {

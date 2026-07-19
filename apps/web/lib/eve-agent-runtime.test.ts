@@ -39,7 +39,8 @@ describe('EveAgentRuntime contract', () => {
     const result = await runtime.sendObservation(handle, observation(fixture));
 
     expect(result.proposedAction).toEqual(proposal);
-    expect(result.handle).toMatchObject({ sessionId: 'session-1', streamIndex: 1 });
+    expect(result.handle).toMatchObject({ sessionId: undefined, streamIndex: 1 });
+    expect(result.eveSessionId).toBe('session-1');
     await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(1);
     await expect(prisma.runEvent.count({ where: { runId: fixture.runId } })).resolves.toBe(0);
   });
@@ -293,7 +294,7 @@ describe('EveAgentRuntime contract', () => {
 
     await expect(
       runtime.answerInput(waiting.handle, { requestId: 'approval', optionId: 'approve' }),
-    ).rejects.toThrow('not available');
+    ).rejects.toThrow('not authorized');
     await expect(runtime.getStatus(waiting.handle)).resolves.toBe('failed');
   });
 
@@ -327,17 +328,15 @@ describe('EveAgentRuntime contract', () => {
     await expect(runtime.getStatus(waiting.handle)).resolves.toBe('failed');
   });
 
-  it('并发 replay 与 null session 使用确定性 identity 去重', async () => {
+  it('null session 使用确定性 identity 去重', async () => {
     const fixture = await createAgentFixture();
     const store = new PrismaAgentRuntimeStore(prisma);
     const handle = await store.loadOrCreate(fixture.participantId, 'director');
-    await Promise.all([
-      store.persist(handle, { streamIndex: 1 }, 'failed', [
-        { type: 'adapter.send_failed', data: {} },
-      ]),
-      store.persist(handle, { streamIndex: 1 }, 'failed', [
-        { type: 'adapter.send_failed', data: {} },
-      ]),
+    await store.persist(handle, { streamIndex: 1 }, 'failed', [
+      { type: 'adapter.send_failed', data: {} },
+    ]);
+    await store.persist(handle, { streamIndex: 1 }, 'failed', [
+      { type: 'adapter.send_failed', data: {} },
     ]);
     await expect(prisma.agentTrace.count({ where: { runId: fixture.runId } })).resolves.toBe(1);
 

@@ -150,7 +150,8 @@ export class AgentRecommendationService {
     triggerSequences: readonly number[];
     force?: boolean;
   }): Promise<{ dispatchId: string | undefined; merged: boolean }> {
-    return this.client.$transaction(async (tx) => {
+    try {
+      return await this.client.$transaction(async (tx) => {
       const run = await requireRunTx(tx, input.runId, input.organizationId);
       const advisor = await tx.runParticipant.findFirst({
         where: {
@@ -257,40 +258,42 @@ export class AgentRecommendationService {
         });
       }
 
-      try {
-        const dispatch = await tx.agentDispatch.create({
-          data: {
-            organizationId: input.organizationId,
+      const dispatch = await tx.agentDispatch.create({
+        data: {
+          organizationId: input.organizationId,
+          runId: input.runId,
+          advisorParticipantId: input.advisorParticipantId,
+          activeKey,
+          requestKind: input.requestKind,
+          triggerEventTypes: toJson(mergeStrings([], input.triggerEventTypes)),
+          triggerSequences: toJson(mergeNumbers([], input.triggerSequences)),
+          baseRunVersion: run.version,
+          observationHash: dispatchObservationHash({
             runId: input.runId,
             advisorParticipantId: input.advisorParticipantId,
-            activeKey,
-            requestKind: input.requestKind,
-            triggerEventTypes: toJson(mergeStrings([], input.triggerEventTypes)),
-            triggerSequences: toJson(mergeNumbers([], input.triggerSequences)),
-            baseRunVersion: run.version,
-            observationHash: dispatchObservationHash({
-              runId: input.runId,
-              advisorParticipantId: input.advisorParticipantId,
-              version: run.version,
-              virtualTime: run.virtualTime,
-              triggerSequences: input.triggerSequences,
-            }),
-          },
-        });
-        await appendActivityTx(tx, input.runId, {
-          type: 'agent.dispatch_queued',
-          dispatchId: dispatch.id,
-          data: {
-            advisorParticipantId: input.advisorParticipantId,
-            requestKind: input.requestKind,
+            version: run.version,
+            virtualTime: run.virtualTime,
             triggerSequences: input.triggerSequences,
-          },
-        });
-        return { dispatchId: dispatch.id, merged: false };
-      } catch (error) {
-        if (!isUniqueConstraint(error)) throw error;
-        // 并发 Outbox consumer 在相同 advisor 上发生竞争时，让唯一 activeKey
-        // 作为最终串行裁决；随后走一次合并路径即可。
+          }),
+        },
+      });
+      await appendActivityTx(tx, input.runId, {
+        type: 'agent.dispatch_queued',
+        dispatchId: dispatch.id,
+        data: {
+          advisorParticipantId: input.advisorParticipantId,
+          requestKind: input.requestKind,
+          triggerSequences: input.triggerSequences,
+        },
+      });
+      return { dispatchId: dispatch.id, merged: false };
+      });
+    } catch (error) {
+      if (!isUniqueConstraint(error)) throw error;
+      return this.client.$transaction(async (tx) => {
+        const activeKey = dispatchActiveKey(input.runId, input.advisorParticipantId);
+        // PostgreSQL 遇到唯一约束会中止当前事务，因此这里必须在事务外捕获后
+        // 开启新事务。唯一 activeKey 仍是同一角色串行分析的最终裁决。
         const raced = await tx.agentDispatch.findUniqueOrThrow({ where: { activeKey } });
         await tx.agentDispatch.update({
           where: { id: raced.id },
@@ -301,11 +304,25 @@ export class AgentRecommendationService {
             triggerSequences: toJson(
               mergeNumbers(numberArray(raced.triggerSequences), input.triggerSequences),
             ),
+            requestKind:
+              requestKindPriority(input.requestKind) > requestKindPriority(raced.requestKind)
+                ? input.requestKind
+                : raced.requestKind,
+            ...(raced.status === 'pending' ? { nextAttemptAt: new Date() } : {}),
+          },
+        });
+        await appendActivityTx(tx, input.runId, {
+          type: 'agent.dispatch_merged',
+          dispatchId: raced.id,
+          data: {
+            advisorParticipantId: input.advisorParticipantId,
+            requestKind: input.requestKind,
+            triggerSequences: input.triggerSequences,
           },
         });
         return { dispatchId: raced.id, merged: true };
-      }
-    });
+      });
+    }
   }
 
   async claimNextDispatch(input: {
@@ -347,25 +364,42 @@ export class AgentRecommendationService {
         },
       },
     });
-    return {
-      id: dispatch.id,
-      runId: dispatch.runId,
-      organizationId: dispatch.organizationId,
-      advisorParticipantId: dispatch.advisorParticipantId,
-      requestKind: parseRequestKind(dispatch.requestKind),
-      triggerEventTypes: stringArray(dispatch.triggerEventTypes),
-      triggerSequences: numberArray(dispatch.triggerSequences),
-      baseRunVersion: dispatch.baseRunVersion,
-      observationHash: dispatch.observationHash ?? undefined,
-      attempts: dispatch.attempts,
-      answeredQuestion: dispatch.questions[0]
-        ? {
-            id: dispatch.questions[0].id,
-            requestId: dispatch.questions[0].requestId,
-            answer: jsonRecord(dispatch.questions[0].answer),
-          }
-        : undefined,
-    };
+    return toDispatchClaim(dispatch);
+  }
+
+  async claimDispatch(input: {
+    dispatchId: string;
+    runId: string;
+    organizationId: string;
+  }): Promise<AgentDispatchClaim | undefined> {
+    const now = new Date();
+    const updated = await this.client.agentDispatch.updateMany({
+      where: {
+        id: input.dispatchId,
+        runId: input.runId,
+        organizationId: input.organizationId,
+        status: 'pending',
+        nextAttemptAt: { lte: now },
+      },
+      data: {
+        status: 'running',
+        lockedAt: now,
+        attempts: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) return undefined;
+
+    const dispatch = await this.client.agentDispatch.findUniqueOrThrow({
+      where: { id: input.dispatchId },
+      include: {
+        questions: {
+          where: { answeredAt: { not: null } },
+          orderBy: { answeredAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    return toDispatchClaim(dispatch);
   }
 
   async markDispatchCompleted(input: {
@@ -396,6 +430,54 @@ export class AgentRecommendationService {
         dispatchId: input.dispatchId,
         data: input.data ?? {},
       });
+    });
+  }
+
+  async recordDispatchObservation(input: {
+    dispatchId: string;
+    runId: string;
+    observationHash: string;
+  }): Promise<void> {
+    const updated = await this.client.agentDispatch.updateMany({
+      where: { id: input.dispatchId, runId: input.runId },
+      data: { observationHash: input.observationHash },
+    });
+    if (updated.count !== 1) {
+      throw new ApplicationError('NOT_FOUND', 'Agent dispatch was not found for this run.');
+    }
+  }
+
+  async requeueFromDispatch(input: {
+    dispatchId: string;
+    runId: string;
+    organizationId: string;
+  }): Promise<{ dispatchId: string | undefined; merged: boolean }> {
+    const dispatch = await this.client.agentDispatch.findFirst({
+      where: {
+        id: input.dispatchId,
+        runId: input.runId,
+        organizationId: input.organizationId,
+      },
+      select: {
+        advisorParticipantId: true,
+        requestKind: true,
+        triggerEventTypes: true,
+        triggerSequences: true,
+      },
+    });
+    if (!dispatch) {
+      throw new ApplicationError('NOT_FOUND', 'Agent dispatch was not found for this run.');
+    }
+    return this.enqueueDispatch({
+      runId: input.runId,
+      organizationId: input.organizationId,
+      advisorParticipantId: dispatch.advisorParticipantId,
+      requestKind: parseRequestKind(dispatch.requestKind),
+      triggerEventTypes: stringArray(dispatch.triggerEventTypes),
+      triggerSequences: numberArray(dispatch.triggerSequences),
+      // 这是模型返回时发现事实版本已变化的专用路径。旧建议已被标记为
+      // superseded，新的 Dispatch 必须基于当前权威版本重新构造 Observation。
+      force: true,
     });
   }
 
@@ -447,8 +529,8 @@ export class AgentRecommendationService {
     dispatchId: string;
     runId: string;
     error: unknown;
-  }): Promise<void> {
-    await this.client.$transaction(async (tx) => {
+  }): Promise<{ nextAttemptAt: Date }> {
+    return this.client.$transaction(async (tx) => {
       const dispatch = await tx.agentDispatch.findUniqueOrThrow({
         where: { id: input.dispatchId },
         select: { runId: true, attempts: true },
@@ -457,13 +539,14 @@ export class AgentRecommendationService {
         throw new ApplicationError('NOT_FOUND', 'Agent dispatch was not found for this run.');
       }
       const delaySeconds = Math.min(300, 5 * 2 ** Math.max(0, dispatch.attempts - 1));
+      const nextAttemptAt = new Date(Date.now() + delaySeconds * 1_000);
       await tx.agentDispatch.update({
         where: { id: input.dispatchId },
         data: {
           status: 'pending',
           lockedAt: null,
           lastError: errorMessage(input.error),
-          nextAttemptAt: new Date(Date.now() + delaySeconds * 1_000),
+          nextAttemptAt,
         },
       });
       await appendActivityTx(tx, input.runId, {
@@ -471,6 +554,7 @@ export class AgentRecommendationService {
         dispatchId: input.dispatchId,
         data: { message: errorMessage(input.error), retryInSeconds: delaySeconds },
       });
+      return { nextAttemptAt };
     });
   }
 
@@ -671,10 +755,13 @@ export class AgentRecommendationService {
     return this.decideWithoutKernel({ ...input, decision: 'defer' });
   }
 
-  async expireDueRecommendations(runId: string, organizationId: string): Promise<void> {
-    await this.client.$transaction(async (tx) => {
+  async expireDueRecommendations(
+    runId: string,
+    organizationId: string,
+  ): Promise<readonly ExpiredRecommendationAdvisor[]> {
+    return this.client.$transaction(async (tx) => {
       const run = await requireRunTx(tx, runId, organizationId);
-      await expireDueRecommendationsTx(tx, run);
+      return expireDueRecommendationsTx(tx, run);
     });
   }
 
@@ -993,7 +1080,7 @@ async function requirePendingRecommendationTx(
 async function expireDueRecommendationsTx(
   tx: Prisma.TransactionClient,
   run: { id: string; virtualTime: number },
-): Promise<void> {
+): Promise<readonly ExpiredRecommendationAdvisor[]> {
   const due = await tx.agentRecommendation.findMany({
     where: {
       runId: run.id,
@@ -1013,7 +1100,16 @@ async function expireDueRecommendationsTx(
       data: { previousStatus: recommendation.status },
     });
   }
+  return due.map((recommendation) => ({
+    advisorParticipantId: recommendation.advisorParticipantId,
+    previousStatus: recommendation.status,
+  }));
 }
+
+type ExpiredRecommendationAdvisor = {
+  advisorParticipantId: string;
+  previousStatus: AgentRecommendationStatus;
+};
 
 async function createSupersededRecommendationTx(
   tx: Prisma.TransactionClient,
@@ -1151,6 +1247,46 @@ function toActivitySummary(record: {
     recommendationId: record.recommendationId ?? undefined,
     data: jsonRecord(record.data),
     createdAt: record.createdAt.toISOString(),
+  };
+}
+
+function toDispatchClaim(record: {
+  id: string;
+  runId: string;
+  organizationId: string;
+  advisorParticipantId: string;
+  requestKind: string;
+  triggerEventTypes: Prisma.JsonValue;
+  triggerSequences: Prisma.JsonValue;
+  baseRunVersion: number;
+  observationHash: string | null;
+  attempts: number;
+  questions: readonly {
+    id: string;
+    requestId: string;
+    answer: Prisma.JsonValue | null;
+  }[];
+}): AgentDispatchClaim {
+  const question = record.questions[0];
+  return {
+    id: record.id,
+    runId: record.runId,
+    organizationId: record.organizationId,
+    advisorParticipantId: record.advisorParticipantId,
+    requestKind: parseRequestKind(record.requestKind),
+    triggerEventTypes: stringArray(record.triggerEventTypes),
+    triggerSequences: numberArray(record.triggerSequences),
+    baseRunVersion: record.baseRunVersion,
+    observationHash: record.observationHash ?? undefined,
+    attempts: record.attempts,
+    answeredQuestion:
+      question === undefined
+        ? undefined
+        : {
+            id: question.id,
+            requestId: question.requestId,
+            answer: jsonRecord(question.answer),
+          },
   };
 }
 

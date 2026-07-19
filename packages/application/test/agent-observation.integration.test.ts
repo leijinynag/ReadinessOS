@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { prisma } from '@readinessos/database';
+import type { ScenarioPack } from '@readinessos/scenario-sdk';
 import { AgentObservationService } from '../src/index.js';
 
 const organizationIds: string[] = [];
@@ -19,11 +20,13 @@ describe('AgentObservationService', () => {
         runId: fixture.runId,
         organizationId: fixture.organizationId,
         participantId: fixture.firstRowId,
+        pack: observationPack,
       }),
       service.build({
         runId: fixture.runId,
         organizationId: fixture.organizationId,
         participantId: fixture.secondRowId,
+        pack: observationPack,
       }),
     ]);
 
@@ -39,6 +42,30 @@ describe('AgentObservationService', () => {
     expect(second.recentEvents.map((event) => event.type)).not.toContain('participant.first');
   });
 });
+
+const observationPack = {
+  agentPolicy: {
+    advisors: [
+      {
+        advisorParticipantKey: 'first',
+        triggerEventTypes: ['run.started'],
+        recommendationPermissions: [{ targetParticipantKey: 'first', actionType: 'observe' }],
+      },
+      {
+        advisorParticipantKey: 'second',
+        triggerEventTypes: ['run.started'],
+        recommendationPermissions: [{ targetParticipantKey: 'second', actionType: 'observe' }],
+      },
+    ],
+  },
+  participants: [
+    { key: 'first', controller: 'agent' },
+    { key: 'second', controller: 'agent' },
+  ],
+  actions: [
+    { key: 'observe', label: 'Observe' },
+  ],
+} as unknown as ScenarioPack<unknown>;
 
 async function createFixture() {
   const suffix = randomUUID();

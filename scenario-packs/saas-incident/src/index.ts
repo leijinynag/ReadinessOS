@@ -220,6 +220,9 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
           'signal.emitted',
           'action.executed',
           'action.rejected',
+          'action.approved',
+          'action.denied',
+          'action.approval_expired',
           'clock.advanced',
         ],
         recommendationPermissions: [
@@ -237,7 +240,15 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       },
       {
         advisorParticipantKey: 'customer-support-lead',
-        triggerEventTypes: ['run.started', 'inject.triggered', 'signal.emitted', 'action.executed'],
+        triggerEventTypes: [
+          'run.started',
+          'inject.triggered',
+          'signal.emitted',
+          'action.executed',
+          'action.approved',
+          'action.denied',
+          'action.approval_expired',
+        ],
         recommendationPermissions: [
           { targetParticipantKey: 'customer-support-lead', actionType: 'publish-status' },
           { targetParticipantKey: 'customer-support-lead', actionType: 'notify-customers' },
@@ -249,14 +260,27 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       },
       {
         advisorParticipantKey: 'executive-stakeholder',
-        triggerEventTypes: ['run.started', 'inject.triggered', 'signal.emitted', 'clock.advanced'],
+        triggerEventTypes: [
+          'run.started',
+          'inject.triggered',
+          'signal.emitted',
+          'action.approved',
+          'action.denied',
+          'clock.advanced',
+        ],
         recommendationPermissions: [
           { targetParticipantKey: 'incident-commander', actionType: 'brief-executives' },
         ],
       },
       {
         advisorParticipantKey: 'payment-provider',
-        triggerEventTypes: ['signal.emitted', 'inject.triggered', 'action.executed'],
+        triggerEventTypes: [
+          'signal.emitted',
+          'inject.triggered',
+          'action.executed',
+          'action.approved',
+          'action.denied',
+        ],
         recommendationPermissions: [
           { targetParticipantKey: 'on-call-engineer', actionType: 'verify-recovery' },
         ],
