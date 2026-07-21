@@ -26,6 +26,13 @@ import {
   liveRunMachine,
 } from '@/lib/live-runtime-actors';
 import { RunEventStore, type RunEventStoreSnapshot } from '@/lib/run-event-store';
+import { AgentDecisionCenter } from './agent-decision-center';
+import type {
+  AgentActivity,
+  AgentQuestion,
+  AgentRecommendation,
+  RecommendationDecisionInput,
+} from './live-agent-types';
 import type { LiveParticipant, LiveWorkspaceProps } from './live-types';
 
 type JsonRecord = Record<string, unknown>;
@@ -55,7 +62,8 @@ type Approval = {
 };
 type TimelineItem =
   | { kind: 'event'; id: string; recordedAt: string; envelope: StreamEnvelope }
-  | { kind: 'trace'; id: string; recordedAt: string; trace: AgentTrace };
+  | { kind: 'trace'; id: string; recordedAt: string; trace: AgentTrace }
+  | { kind: 'agent-activity'; id: string; recordedAt: string; activity: AgentActivity };
 
 const runStatusLabels: Record<RunSummary['status'], string> = {
   created: '待启动',
@@ -88,11 +96,14 @@ export function LiveWorkspaceClient({
   participants,
   actions,
   injects,
+  advisors,
 }: LiveWorkspaceProps) {
   const eventStoreRef = useRef(new RunEventStore());
   const timelineRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const agentActivitySourceRef = useRef<EventSource | null>(null);
   const traceCursorRef = useRef<string | undefined>(undefined);
+  const agentActivityCursorRef = useRef(0);
   const recoveringRef = useRef(false);
   const [run, setRun] = useState(initialRun);
   const [eventSnapshot, setEventSnapshot] = useState<RunEventStoreSnapshot>(
@@ -100,6 +111,9 @@ export function LiveWorkspaceClient({
   );
   const [traces, setTraces] = useState<readonly AgentTrace[]>([]);
   const [approvals, setApprovals] = useState<readonly Approval[]>([]);
+  const [recommendations, setRecommendations] = useState<readonly AgentRecommendation[]>([]);
+  const [questions, setQuestions] = useState<readonly AgentQuestion[]>([]);
+  const [agentActivities, setAgentActivities] = useState<readonly AgentActivity[]>([]);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [commandError, setCommandError] = useState<string | null>(null);
   const runActorRef = useRef(createActor(liveRunMachine, { input: toRunContext(initialRun) }));
@@ -157,6 +171,32 @@ export function LiveWorkspaceClient({
     setApprovals(body.approvals ?? []);
   }, [initialRun.id]);
 
+  const fetchAgentRecommendations = useCallback(async () => {
+    const response = await fetch(`/api/runs/${initialRun.id}/recommendations`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      return;
+    }
+    const body = (await response.json()) as {
+      recommendations?: AgentRecommendation[];
+      questions?: AgentQuestion[];
+      activities?: AgentActivity[];
+      nextActivityCursor?: number;
+    };
+    setRecommendations(body.recommendations ?? []);
+    setQuestions(body.questions ?? []);
+    if (body.activities?.length) {
+      setAgentActivities((current) => dedupeAgentActivities([...current, ...body.activities!]));
+    }
+    if (typeof body.nextActivityCursor === 'number') {
+      agentActivityCursorRef.current = Math.max(
+        agentActivityCursorRef.current,
+        body.nextActivityCursor,
+      );
+    }
+  }, [initialRun.id]);
+
   const recoverEvents = useCallback(async () => {
     if (recoveringRef.current) {
       return;
@@ -189,11 +229,23 @@ export function LiveWorkspaceClient({
         }
         cursor = nextCursor;
       }
-      await Promise.all([refreshRun(), fetchTraces(), fetchApprovals()]);
+      await Promise.all([
+        refreshRun(),
+        fetchTraces(),
+        fetchApprovals(),
+        fetchAgentRecommendations(),
+      ]);
     } finally {
       recoveringRef.current = false;
     }
-  }, [fetchApprovals, fetchTraces, initialRun.id, refreshRun, updateEventSnapshot]);
+  }, [
+    fetchAgentRecommendations,
+    fetchApprovals,
+    fetchTraces,
+    initialRun.id,
+    refreshRun,
+    updateEventSnapshot,
+  ]);
 
   useEffect(() => {
     const runActor = runActorRef.current;
@@ -252,6 +304,34 @@ export function LiveWorkspaceClient({
           }
           void recoverEvents().catch(() => undefined);
         };
+
+        // Agent 活动是独立于 Kernel run_events 的审计流。两个 SSE 各自恢复，
+        // 防止 Agent 失败或重连影响权威领域事件的显示与回放。
+        agentActivitySourceRef.current?.close();
+        const agentActivitySource = new EventSource(
+          `/api/runs/${initialRun.id}/agent-activities/stream?after=${agentActivityCursorRef.current}`,
+        );
+        agentActivitySourceRef.current = agentActivitySource;
+        agentActivitySource.addEventListener('agent.activity', (message) => {
+          const activity = parseAgentActivity((message as MessageEvent<string>).data);
+          if (!activity) {
+            return;
+          }
+          agentActivityCursorRef.current = Math.max(agentActivityCursorRef.current, activity.sequence);
+          setAgentActivities((current) => dedupeAgentActivities([...current, activity]));
+          void fetchAgentRecommendations();
+          if (
+            activity.type === 'agent.recommendation_adopted' ||
+            activity.type === 'agent.recommendation_modified' ||
+            activity.type === 'agent.recommendation_submitted_to_kernel'
+          ) {
+            void Promise.all([refreshRun(), fetchApprovals()]);
+          }
+        });
+        agentActivitySource.onerror = () => {
+          // EventSource 自带重连能力；拉取快照可防止短暂断线留下活动缺口。
+          void fetchAgentRecommendations();
+        };
       } catch {
         connectionActor.send({ type: 'offline' });
       }
@@ -264,6 +344,8 @@ export function LiveWorkspaceClient({
     const handleOffline = () => {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
+      agentActivitySourceRef.current?.close();
+      agentActivitySourceRef.current = null;
       connectionActor.send({ type: 'offline' });
     };
     window.addEventListener('online', handleOnline);
@@ -274,6 +356,8 @@ export function LiveWorkspaceClient({
       disposed = true;
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
+      agentActivitySourceRef.current?.close();
+      agentActivitySourceRef.current = null;
       connectionSubscription.unsubscribe();
       runActor.stop();
       connectionActor.stop();
@@ -281,7 +365,15 @@ export function LiveWorkspaceClient({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [fetchApprovals, fetchTraces, initialRun.id, recoverEvents, refreshRun, updateEventSnapshot]);
+  }, [
+    fetchAgentRecommendations,
+    fetchApprovals,
+    fetchTraces,
+    initialRun.id,
+    recoverEvents,
+    refreshRun,
+    updateEventSnapshot,
+  ]);
 
   const submitCommand = useCallback(
     async (input: { endpoint: string; body: Record<string, unknown>; label: string }) => {
@@ -299,15 +391,23 @@ export function LiveWorkspaceClient({
           },
           body: JSON.stringify(input.body),
         });
-        const body = (await response.json()) as { error?: { message?: string } };
-        if (!response.ok) {
-          const message = body.error?.message ?? '命令未被运行时接受。';
+        const body = (await response.json()) as {
+          error?: { message?: string };
+          result?: {
+            status?: 'accepted' | 'rejected' | 'duplicate';
+            rejection?: { message?: string };
+          };
+        };
+        const kernelRejection =
+          body.result?.status === 'rejected' ? body.result.rejection?.message : undefined;
+        if (!response.ok || kernelRejection) {
+          const message = body.error?.message ?? kernelRejection ?? '命令未被运行时接受。';
           eventStoreRef.current.resolveCommand(id, 'rejected', message);
           updateEventSnapshot();
           setCommandError(message);
-          if (response.status === 409) {
-            await recoverEvents();
-          }
+          // 被拒绝的动作也可能已写入 action.rejected，因此所有失败都拉取一次
+          // 权威事件流和最新 Run，避免错误状态或审批面板停留在旧快照。
+          await recoverEvents().catch(() => undefined);
           return;
         }
         eventStoreRef.current.resolveCommand(id, 'accepted');
@@ -374,11 +474,17 @@ export function LiveWorkspaceClient({
           recordedAt: trace.recordedAt,
           trace,
         })),
+        ...agentActivities.map((activity): TimelineItem => ({
+          kind: 'agent-activity',
+          id: `agent-activity:${activity.id}`,
+          recordedAt: activity.createdAt,
+          activity,
+        })),
       ].sort((left, right) => {
         const time = left.recordedAt.localeCompare(right.recordedAt);
         return time === 0 ? left.id.localeCompare(right.id) : time;
       }),
-    [eventSnapshot.events, traces],
+    [agentActivities, eventSnapshot.events, traces],
   );
   const virtualizer = useVirtualizer({
     count: timelineItems.length,
@@ -402,6 +508,83 @@ export function LiveWorkspaceClient({
       await fetchApprovals();
     },
     [fetchApprovals, submitCommand],
+  );
+
+  const requestAgentAnalysis = useCallback(
+    async (participantId: string, requestKind: 'reanalyze' | 'compare') => {
+      const response = await fetch(
+        `/api/runs/${initialRun.id}/participants/${participantId}/agent-analysis`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'If-Match': `"${run.version}"`,
+            'Idempotency-Key': newCommandId(),
+          },
+          body: JSON.stringify({ requestKind }),
+        },
+      );
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) {
+        throw new Error(body.error?.message ?? '无法请求 Agent 分析。');
+      }
+      await fetchAgentRecommendations();
+    },
+    [fetchAgentRecommendations, initialRun.id, run.version],
+  );
+
+  const decideRecommendation = useCallback(
+    async (input: RecommendationDecisionInput) => {
+      const response = await fetch(
+        `/api/runs/${initialRun.id}/recommendations/${input.recommendationId}/decision`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'If-Match': `"${run.version}"`,
+            'Idempotency-Key': newCommandId(),
+          },
+          body: JSON.stringify({
+            decision: input.decision,
+            ...(input.rationale === undefined ? {} : { rationale: input.rationale }),
+            ...(input.deferMinutes === undefined ? {} : { deferMinutes: input.deferMinutes }),
+            ...(input.modifiedAction === undefined ? {} : { modifiedAction: input.modifiedAction }),
+          }),
+        },
+      );
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) {
+        throw new Error(body.error?.message ?? '无法提交 IC 裁决。');
+      }
+      await Promise.all([recoverEvents(), fetchAgentRecommendations(), fetchApprovals()]);
+    },
+    [fetchAgentRecommendations, fetchApprovals, initialRun.id, recoverEvents, run.version],
+  );
+
+  const answerAgentQuestion = useCallback(
+    async (input: { questionId: string; optionId?: string; text?: string }) => {
+      const response = await fetch(
+        `/api/runs/${initialRun.id}/agent-questions/${input.questionId}/answer`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'If-Match': `"${run.version}"`,
+            'Idempotency-Key': newCommandId(),
+          },
+          body: JSON.stringify({
+            ...(input.optionId === undefined ? {} : { optionId: input.optionId }),
+            ...(input.text === undefined ? {} : { text: input.text }),
+          }),
+        },
+      );
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) {
+        throw new Error(body.error?.message ?? '无法发送事实补充。');
+      }
+      await fetchAgentRecommendations();
+    },
+    [fetchAgentRecommendations, initialRun.id, run.version],
   );
 
   return (
@@ -753,6 +936,17 @@ export function LiveWorkspaceClient({
               </ul>
             )}
           </section>
+
+          <AgentDecisionCenter
+            run={run}
+            participants={participants}
+            advisors={advisors}
+            recommendations={recommendations}
+            questions={questions}
+            onRequestAnalysis={requestAgentAnalysis}
+            onDecision={decideRecommendation}
+            onAnswerQuestion={answerAgentQuestion}
+          />
         </section>
 
         <aside className="live-inspector" aria-labelledby="live-inspector-heading">
@@ -805,6 +999,43 @@ export function LiveWorkspaceClient({
                       : '未分配'}
                   </p>
                 </div>
+                {participant.controller === 'agent' &&
+                advisors.some((advisor) => advisor.participantId === participant.id) ? (
+                  <div className="live-participant-agent-actions">
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`请求 ${participant.displayName} 重新分析`}
+                      title="重新分析"
+                      disabled={!isRunnable}
+                      onClick={() => {
+                        void requestAgentAnalysis(participant.id, 'reanalyze').catch((error) => {
+                          setCommandError(
+                            error instanceof Error ? error.message : '无法请求 Agent 重新分析。',
+                          );
+                        });
+                      }}
+                    >
+                      <RefreshCw size={15} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`请求 ${participant.displayName} 比较方案`}
+                      title="比较方案"
+                      disabled={!isRunnable}
+                      onClick={() => {
+                        void requestAgentAnalysis(participant.id, 'compare').catch((error) => {
+                          setCommandError(
+                            error instanceof Error ? error.message : '无法请求 Agent 比较方案。',
+                          );
+                        });
+                      }}
+                    >
+                      <Zap size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -858,6 +1089,23 @@ function TimelineEntry({
       </article>
     );
   }
+  if (item.kind === 'agent-activity') {
+    return (
+      <article className={`timeline-entry is-agent-activity ${agentActivityTone(item.activity.type)}`}>
+        <span className="timeline-entry-icon">
+          <ShieldAlert size={15} aria-hidden="true" />
+        </span>
+        <div>
+          <strong>{agentActivityLabel(item.activity.type)}</strong>
+          <p>
+            Agent 审计 · 活动 #{item.activity.sequence}
+            {item.activity.recommendationId ? ' · 已关联建议' : ''}
+          </p>
+        </div>
+        <time dateTime={item.activity.createdAt}>{formatTime(item.activity.createdAt)}</time>
+      </article>
+    );
+  }
 
   const event = item.envelope.event;
   const style = eventTone(event.type, event.source);
@@ -903,6 +1151,20 @@ function parseEnvelope(value: string): StreamEnvelope | null {
   }
 }
 
+function parseAgentActivity(value: string): AgentActivity | null {
+  try {
+    const parsed = JSON.parse(value) as AgentActivity;
+    return typeof parsed.id === 'string' &&
+      typeof parsed.sequence === 'number' &&
+      typeof parsed.type === 'string' &&
+      typeof parsed.createdAt === 'string'
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function pendingApprovalCount(run: RunSummary): number {
   return readStringArray(readRecord(run.data).pendingApprovalIds).length;
 }
@@ -926,6 +1188,11 @@ function dedupeTraces(traces: readonly AgentTrace[]): AgentTrace[] {
   return [...unique.values()].sort((left, right) =>
     left.recordedAt.localeCompare(right.recordedAt),
   );
+}
+
+function dedupeAgentActivities(activities: readonly AgentActivity[]): AgentActivity[] {
+  const unique = new Map(activities.map((activity) => [activity.id, activity]));
+  return [...unique.values()].sort((left, right) => left.sequence - right.sequence);
 }
 
 function participantName(participants: readonly LiveParticipant[], id: string): string {
@@ -969,6 +1236,47 @@ function traceLabel(type: string): string {
 
 function traceTone(type: string): string {
   return type.includes('proposal') ? 'is-proposal' : 'is-agent';
+}
+
+function agentActivityLabel(type: string): string {
+  const labels: Record<string, string> = {
+    'agent.dispatch_queued': 'Agent 已进入分析队列',
+    'agent.dispatch_merged': 'Agent 分析触发已合并',
+    'agent.trigger_merged': '新事实已并入现有建议',
+    'agent.question_asked': 'Agent 请求补充事实',
+    'agent.question_answered': 'IC 已补充 Agent 所需事实',
+    'agent.recommendation_created': 'Agent 提出结构化建议',
+    'agent.recommendation_adopted': 'IC 采纳 Agent 建议',
+    'agent.recommendation_modified': 'IC 修改 Agent 建议',
+    'agent.recommendation_rejected': 'IC 拒绝 Agent 建议',
+    'agent.recommendation_deferred': 'IC 延后 Agent 建议',
+    'agent.recommendation_submitted_to_kernel': '已通过 Kernel 提交建议动作',
+    'agent.recommendation_kernel_rejected': 'Kernel 拒绝建议动作',
+    'agent.recommendation_superseded': 'Agent 建议因事实变化失效',
+    'agent.recommendation_expired': 'Agent 建议已到期',
+    'agent.analysis_failed': 'Agent 分析失败，正在退避重试',
+    'agent.analysis_terminal_failed': 'Agent 分析已停止',
+    'agent.analysis_skipped': 'Agent 分析已跳过',
+    'agent.analysis_completed_without_recommendation': 'Agent 完成分析，未提出动作建议',
+  };
+  return labels[type] ?? type;
+}
+
+function agentActivityTone(type: string): string {
+  if (
+    type.includes('recommendation_created') ||
+    type.includes('question_asked') ||
+    type.includes('dispatch_queued')
+  ) {
+    return 'is-agent';
+  }
+  if (type.includes('adopted') || type.includes('modified') || type.includes('submitted_to_kernel')) {
+    return 'is-execution';
+  }
+  if (type.includes('rejected') || type.includes('failed') || type.includes('expired')) {
+    return 'is-proposal';
+  }
+  return 'is-agent';
 }
 
 function formatTime(value: string): string {

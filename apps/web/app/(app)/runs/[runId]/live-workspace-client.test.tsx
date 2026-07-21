@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunSummary } from '@readinessos/application';
 import { LiveWorkspaceClient } from './live-workspace-client';
@@ -8,9 +8,11 @@ const runtimeParticipantId = '018f4c8b-9ae2-7a72-86bd-4f867befef31';
 
 describe('LiveWorkspaceClient', () => {
   const fetchMock = vi.fn<typeof fetch>();
+  let actionResponse: Record<string, unknown>;
 
   beforeEach(() => {
     fetchMock.mockReset();
+    actionResponse = { result: {} };
     vi.stubGlobal('fetch', fetchMock);
     // JSDOM 没有布局尺寸，给虚拟列表一个可见视口以覆盖真实渲染路径。
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -27,7 +29,7 @@ describe('LiveWorkspaceClient', () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
       if (init?.method === 'POST' && url.endsWith('/actions')) {
-        return Response.json({ result: {} }, { headers: { ETag: '"4"' } });
+        return Response.json(actionResponse, { headers: { ETag: '"4"' } });
       }
       if (url.includes('/events?')) {
         return Response.json({ events: [], nextCursor: 0 });
@@ -37,6 +39,14 @@ describe('LiveWorkspaceClient', () => {
       }
       if (url.includes('/agent-traces')) {
         return Response.json({ agentTraces: [] });
+      }
+      if (url.endsWith('/recommendations')) {
+        return Response.json({
+          recommendations: [],
+          questions: [],
+          activities: [],
+          nextActivityCursor: 0,
+        });
       }
       if (url.endsWith('/approvals')) {
         return Response.json({
@@ -63,6 +73,7 @@ describe('LiveWorkspaceClient', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -70,7 +81,7 @@ describe('LiveWorkspaceClient', () => {
   it('以运行时参与方 ID 提交 Human 动作，并显示已接受状态', async () => {
     render(<LiveWorkspaceClient {...workspaceProps()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '提交动作 宣布事故' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '提交动作 宣布事故' }).at(-1)!);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -102,6 +113,23 @@ describe('LiveWorkspaceClient', () => {
       );
     });
   });
+
+  it('兼容旧接口返回的 200 + Kernel 拒绝，不把命令显示为已接受', async () => {
+    actionResponse = {
+      result: {
+        status: 'rejected',
+        rejection: { message: 'Run version does not match the command.' },
+      },
+    };
+    render(<LiveWorkspaceClient {...workspaceProps()} />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: '提交动作 宣布事故' }).at(-1)!);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Run version does not match the command.',
+    );
+    expect(screen.queryByText('已接受')).not.toBeInTheDocument();
+  });
 });
 
 function workspaceProps() {
@@ -130,6 +158,7 @@ function workspaceProps() {
       },
     ],
     injects: [],
+    advisors: [],
   };
 }
 

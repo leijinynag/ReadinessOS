@@ -1601,6 +1601,150 @@ h1 {
   margin: 0;
 }
 
+.review-agent-causal-chain {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--surface);
+}
+
+.review-agent-causal-chain > .review-section-heading {
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-agent-causal-chain > .review-section-heading > span {
+  max-width: 220px;
+  text-align: right;
+}
+
+.review-agent-empty {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.review-agent-chain-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-agent-chain-list article {
+  border-left: 3px solid #2563eb;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.review-agent-chain-list header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-agent-chain-list h3 {
+  margin: 4px 0;
+  color: var(--navy);
+  font-size: 15px;
+}
+
+.review-agent-chain-list header p,
+.review-agent-rationale,
+.review-agent-decision-rationale,
+.review-agent-evaluations {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.review-agent-chain-list header strong {
+  color: var(--navy);
+}
+
+.review-agent-role,
+.review-agent-status {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.review-agent-status.is-adopted,
+.review-agent-status.is-modified {
+  color: #075951;
+  background: #ccfbf1;
+}
+
+.review-agent-status.is-rejected,
+.review-agent-status.is-superseded,
+.review-agent-status.is-expired {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.review-agent-status.is-deferred {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.review-agent-rationale {
+  margin-top: 10px;
+  color: var(--navy);
+}
+
+.review-agent-chain-list dl {
+  display: grid;
+  gap: 9px;
+  margin: 12px 0 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-agent-chain-list dl div {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.review-agent-chain-list dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.review-agent-chain-list dd {
+  margin: 4px 0 0;
+  color: var(--navy);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.review-agent-chain-list dd button {
+  margin: 0 4px 4px 0;
+  border: 0;
+  padding: 0;
+  color: #0f766e;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.review-agent-decision-rationale,
+.review-agent-evaluations {
+  margin-top: 9px;
+}
+
 .review-score-grid button {
   margin: 8px 6px 0 0;
   border: 0;
@@ -1867,6 +2011,374 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.live-participant-agent-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.agent-decision-center {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  border-top: 2px solid #dbeafe;
+  padding-top: 18px;
+}
+
+.agent-decision-header,
+.agent-recommendation-title,
+.agent-decision-actions,
+.agent-analysis-shortcuts,
+.agent-subheading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-decision-header h2 {
+  margin: 4px 0 6px;
+  font-size: 18px;
+}
+
+.agent-decision-header p {
+  max-width: 660px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.agent-decision-counts {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 5px;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.agent-decision-error {
+  margin: 0;
+}
+
+.agent-question-list,
+.agent-recommendation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-subheading {
+  align-items: center;
+  justify-content: flex-start;
+  color: #1d4ed8;
+}
+
+.agent-subheading h3,
+.agent-subheading h4 {
+  margin: 0;
+  color: var(--navy);
+  font-size: 14px;
+}
+
+.agent-question-card,
+.agent-recommendation-card,
+.agent-decision-empty {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-left: 3px solid #2563eb;
+  padding: 13px;
+  background: #fbfdff;
+}
+
+.agent-question-card {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-question-card > p {
+  margin: 0;
+  color: var(--navy);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-question-options {
+  display: grid;
+  gap: 7px;
+}
+
+.agent-question-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--navy);
+  font-size: 12px;
+}
+
+.agent-question-card textarea,
+.agent-decision-controls textarea,
+.agent-modification-form textarea,
+.agent-modification-form select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  color: var(--navy);
+  background: var(--surface);
+  font: inherit;
+}
+
+.agent-question-card textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.agent-question-card .button {
+  justify-self: start;
+}
+
+.agent-decision-empty {
+  display: grid;
+  gap: 6px;
+  place-items: start;
+  color: #1d4ed8;
+}
+
+.agent-decision-empty strong,
+.agent-decision-empty p {
+  color: var(--navy);
+}
+
+.agent-decision-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-recommendation-card.is-adopted,
+.agent-recommendation-card.is-modified {
+  border-left-color: var(--teal);
+}
+
+.agent-recommendation-card.is-rejected,
+.agent-recommendation-card.is-superseded,
+.agent-recommendation-card.is-expired {
+  border-left-color: var(--red);
+}
+
+.agent-recommendation-card.is-deferred {
+  border-left-color: var(--amber);
+}
+
+.agent-recommendation-title h3 {
+  margin: 4px 0;
+  color: var(--navy);
+  font-size: 16px;
+}
+
+.agent-recommendation-title p,
+.agent-recommendation-rationale,
+.agent-evidence {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-recommendation-title strong {
+  color: var(--navy);
+}
+
+.agent-role-label,
+.agent-recommendation-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-role-label {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.agent-recommendation-status {
+  flex: 0 0 auto;
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.agent-recommendation-status.is-adopted,
+.agent-recommendation-status.is-modified {
+  color: #075951;
+  background: #ccfbf1;
+}
+
+.agent-recommendation-status.is-rejected,
+.agent-recommendation-status.is-superseded,
+.agent-recommendation-status.is-expired {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.agent-recommendation-status.is-deferred {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.agent-recommendation-rationale {
+  margin-top: 12px;
+  color: var(--navy);
+}
+
+.agent-recommendation-facts {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-recommendation-facts div {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.agent-recommendation-facts dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-recommendation-facts dd {
+  margin: 3px 0 0;
+  color: var(--navy);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.agent-evidence {
+  margin-bottom: 10px;
+}
+
+.agent-parameters {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+
+.agent-parameters summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #1d4ed8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-parameters pre {
+  max-height: 170px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  background: #f1f5f9;
+  color: var(--navy);
+  font-size: 11px;
+}
+
+.agent-decision-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.agent-decision-controls > label,
+.agent-modification-form > label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.agent-decision-controls textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.agent-decision-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.agent-decision-actions .button {
+  gap: 5px;
+}
+
+.agent-defer-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-defer-button {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 7px;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.agent-defer-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agent-modification-form {
+  display: grid;
+  gap: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 11px;
+}
+
+.agent-modification-form textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.agent-modification-form > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agent-analysis-shortcuts {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.agent-analysis-shortcuts > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 @media (max-width: 980px) {
   .scenario-facts,
   .studio-config-grid {
@@ -1900,6 +2412,18 @@ h1 {
 
   .live-timeline-scroll {
     height: 300px;
+  }
+
+  .review-agent-chain-list dl {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-decision-header {
+    flex-direction: column;
+  }
+
+  .agent-decision-counts {
+    text-align: left;
   }
 }
 
@@ -2006,6 +2530,31 @@ h1 {
 
   .user-label {
     display: none;
+  }
+
+  .agent-recommendation-title,
+  .agent-decision-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .agent-recommendation-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-recommendation-status {
+    align-self: flex-start;
+  }
+
+  .review-agent-causal-chain > .review-section-heading,
+  .review-agent-chain-list header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .review-agent-causal-chain > .review-section-heading > span {
+    max-width: none;
+    text-align: left;
   }
 }
 

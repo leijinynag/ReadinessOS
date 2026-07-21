@@ -34,9 +34,28 @@ export type LiveInject = {
   label: string;
 };
 
+/**
+ * 这是 IC 修改建议时可选的动作白名单。它来自 Scenario Pack 的 agentPolicy，
+ * 不是 Agent capability，也不是客户端自行推导的权限。
+ */
+export type LiveAdvisorAction = {
+  targetParticipantId: string;
+  targetDisplayName: string;
+  actionType: string;
+  actionLabel: string;
+  risk: 'low' | 'high';
+  approval: 'none' | 'required';
+};
+
+export type LiveAdvisor = {
+  participantId: string;
+  actions: readonly LiveAdvisorAction[];
+};
+
 export type LiveWorkspaceProps = {
   run: RunSummary;
   participants: readonly LiveParticipant[];
   actions: readonly LiveAction[];
   injects: readonly LiveInject[];
+  advisors: readonly LiveAdvisor[];
 };

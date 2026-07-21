@@ -6,6 +6,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getAuthSession } from '@/lib/auth-session';
 import { runService } from '@/lib/run-runtime';
 import { LiveWorkspace, type LiveParticipant } from './live-workspace';
+import type { LiveAdvisor } from './live-types';
 
 export type LiveAction = {
   key: string;
@@ -105,6 +106,33 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
     key: inject.key,
     label: inject.key.replaceAll('-', ' '),
   }));
+  const participantsByKey = new Map(participants.map((participant) => [participant.key, participant]));
+  const actionsByKey = new Map(specializedPack.actions.map((action) => [action.key, action]));
+  const advisors: LiveAdvisor[] =
+    specializedPack.agentPolicy?.advisors.flatMap((policy) => {
+      const advisor = participantsByKey.get(policy.advisorParticipantKey);
+      if (!advisor) return [];
+      return [
+        {
+          participantId: advisor.id,
+          actions: policy.recommendationPermissions.flatMap((permission) => {
+            const target = participantsByKey.get(permission.targetParticipantKey);
+            const action = actionsByKey.get(permission.actionType);
+            if (!target || !action) return [];
+            return [
+              {
+                targetParticipantId: target.id,
+                targetDisplayName: target.displayName,
+                actionType: action.key,
+                actionLabel: action.label,
+                risk: action.risk,
+                approval: action.approval,
+              },
+            ];
+          }),
+        },
+      ];
+    }) ?? [];
 
   return (
     <>
@@ -118,7 +146,13 @@ export default async function LiveRunPage({ params }: LiveRunPageProps) {
           </Link>
         </div>
       </div>
-      <LiveWorkspace run={run} participants={participants} actions={actions} injects={injects} />
+      <LiveWorkspace
+        run={run}
+        participants={participants}
+        actions={actions}
+        injects={injects}
+        advisors={advisors}
+      />
     </>
   );
 }

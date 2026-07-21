@@ -142,6 +142,118 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
         ))}
       </section>
 
+      <section className="review-agent-causal-chain" aria-labelledby="review-agent-chain-heading">
+        <div className="review-section-heading">
+          <div>
+            <p className="eyebrow">Agent Causality</p>
+            <h2 id="review-agent-chain-heading">Agent 因果链</h2>
+          </div>
+          <span>Agent 审计层不参与 Kernel 回放</span>
+        </div>
+        {review.agentCausalChain.length === 0 ? (
+          <p className="review-agent-empty">
+            本次演练尚未形成 Agent 建议。启动运行并触发事件后，相关角色会形成可裁决的结构化建议。
+          </p>
+        ) : (
+          <ol className="review-agent-chain-list">
+            {review.agentCausalChain.map((item) => (
+              <li key={item.recommendationId}>
+                <article>
+                  <header>
+                    <div>
+                      <span className="review-agent-role">{item.advisorDisplayName}</span>
+                      <h3>{item.actionType}</h3>
+                      <p>
+                        建议 <strong>{item.targetDisplayName}</strong> 执行 · 置信度{' '}
+                        {Math.round(item.confidence * 100)}%
+                      </p>
+                    </div>
+                    <span className={`review-agent-status is-${item.status}`}>
+                      {recommendationStatusLabel(item.status)}
+                    </span>
+                  </header>
+                  <p className="review-agent-rationale">{item.rationale}</p>
+                  <dl>
+                    <div>
+                      <dt>触发事实</dt>
+                      <dd>
+                        {item.triggerSequences.length > 0
+                          ? item.triggerSequences.map((sequence) => (
+                              <button
+                                type="button"
+                                key={sequence}
+                                onClick={() => void replayTo(sequence)}
+                              >
+                                #{sequence}
+                              </button>
+                            ))
+                          : item.triggerEventTypes.join(' · ') || 'IC 主动请求'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>事实基线</dt>
+                      <dd>
+                        v{item.baseRunVersion} · T+{item.baseVirtualTime} · 到期 T+
+                        {item.expiresAtVirtualTime}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>IC 裁决</dt>
+                      <dd>
+                        {item.decision ? (
+                          <>
+                            {agentDecisionLabel(item.decision.type)}
+                            {item.decision.actorName ? ` · ${item.decision.actorName}` : ''}
+                            {item.decision.executionSequence
+                              ? ` · Kernel #${item.decision.executionSequence}`
+                              : ' · 未改变 WorldState'}
+                          </>
+                        ) : (
+                          '尚未裁决'
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>后续结果</dt>
+                      <dd>
+                        {item.subsequentEvents.length > 0
+                          ? item.subsequentEvents.slice(0, 4).map((event) => (
+                              <button
+                                type="button"
+                                key={event.sequence}
+                                onClick={() => void replayTo(event.sequence)}
+                              >
+                                #{event.sequence} {event.type}
+                              </button>
+                            ))
+                          : '暂无领域后果'}
+                      </dd>
+                    </div>
+                  </dl>
+                  {item.decision?.rationale ? (
+                    <p className="review-agent-decision-rationale">
+                      IC 理由：{item.decision.rationale}
+                    </p>
+                  ) : null}
+                  {item.subsequentEvaluations.length > 0 ? (
+                    <p className="review-agent-evaluations">
+                      后续评分：
+                      {item.subsequentEvaluations
+                        .slice(0, 3)
+                        .map(
+                          (evaluation) =>
+                            ` ${evaluation.evaluatorKey} ${Math.round(evaluation.score)}`,
+                        )
+                        .join(' · ')}
+                    </p>
+                  ) : null}
+                </article>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
       <div className="review-grid">
         <section className="review-timeline" aria-labelledby="review-timeline-heading">
           <div className="review-section-heading">
@@ -329,4 +441,25 @@ export function ReviewWorkspace({ initialReview }: ReviewWorkspaceProps) {
       </div>
     </main>
   );
+}
+
+function recommendationStatusLabel(status: string): string {
+  return {
+    pending: '待裁决',
+    adopted: '已采纳',
+    modified: '已修改',
+    rejected: '已拒绝',
+    deferred: '已延后',
+    superseded: '事实已变化',
+    expired: '已到期',
+  }[status] ?? status;
+}
+
+function agentDecisionLabel(type: 'adopt' | 'modify' | 'reject' | 'defer'): string {
+  return {
+    adopt: '采纳',
+    modify: '修改后采纳',
+    reject: '拒绝',
+    defer: '延后',
+  }[type];
 }
