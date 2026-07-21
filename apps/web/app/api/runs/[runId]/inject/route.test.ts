@@ -26,7 +26,9 @@ vi.mock('@/lib/run-runtime', () => ({
     getRunScenarioPack: mocks.getPack,
     execute: mocks.execute,
   },
-  drainRuntimeOutbox: mocks.drainOutbox,
+}));
+vi.mock('@/lib/outbox-after-response', () => ({
+  drainOutboxAfterResponse: mocks.drainOutbox,
 }));
 const { POST } = await import('./route');
 const runId = '018f4c8b-9ae2-7a72-86bd-4f867befef01';

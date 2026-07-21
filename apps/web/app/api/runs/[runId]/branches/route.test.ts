@@ -14,7 +14,9 @@ vi.mock('@readinessos/database', () => ({
 vi.mock('@/lib/run-api', () => ({ requireRunSession: mocks.requireSession }));
 vi.mock('@/lib/run-runtime', () => ({
   runService: { createBranchRun: mocks.createBranchRun },
-  drainRuntimeOutbox: mocks.drainOutbox,
+}));
+vi.mock('@/lib/outbox-after-response', () => ({
+  drainOutboxAfterResponse: mocks.drainOutbox,
 }));
 vi.mock('@/lib/api-response', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api-response')>('@/lib/api-response');

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { ApplicationError } from '@readinessos/domain-events';
 import { apiError, requiredIdempotencyKey, responseWithRunVersion } from '@/lib/api-response';
-import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { drainOutboxAfterResponse } from '@/lib/outbox-after-response';
+import { runService } from '@/lib/run-runtime';
 import { requireRunSession } from '@/lib/run-api';
 
 const createRunSchema = z.object({
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
         ? {}
         : { tickIntervalSeconds: input.tickIntervalSeconds }),
     });
-    await drainRuntimeOutbox();
+    drainOutboxAfterResponse();
     return responseWithRunVersion({ run }, run.version, 201);
   } catch (error) {
     return apiError(error);

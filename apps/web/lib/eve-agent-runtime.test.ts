@@ -45,6 +45,37 @@ describe('EveAgentRuntime contract', () => {
     await expect(prisma.runEvent.count({ where: { runId: fixture.runId } })).resolves.toBe(0);
   });
 
+  it('Eve 等待下一条普通消息时仍消费已完成的结构化建议', async () => {
+    const fixture = await createAgentFixture();
+    const proposal = {
+      advisorParticipantId: fixture.participantId,
+      targetParticipantId: fixture.participantId,
+      actionType: 'publish_status',
+      parameters: {},
+      rationale: 'Update customers.',
+      evidenceRefs: [],
+      confidence: 0.9,
+    };
+    const runtime = new EveAgentRuntime(
+      fakeSessions({ status: 'waiting', data: proposal }),
+      new PrismaAgentRuntimeStore(prisma),
+    );
+    const handle = await runtime.start({
+      runParticipantId: fixture.participantId,
+      agentKey: 'director',
+    });
+
+    const result = await runtime.sendObservation(handle, observation(fixture));
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      proposedAction: proposal,
+      inputRequests: [],
+      handle: { sessionId: undefined, continuationToken: undefined },
+    });
+    await expect(runtime.getStatus(handle)).resolves.toBe('completed');
+  });
+
   it('记录 Agent Turn、延迟和 Eve 返回的 Token 与费用', async () => {
     const fixture = await createAgentFixture();
     const proposal = {
@@ -412,7 +443,7 @@ function throwingSessions(stage: 'send' | 'result'): EveSessionFactory {
   };
 }
 function fakeSessions(input: {
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'waiting';
   data: unknown;
   eventType?: string;
   events?: Array<{ type: string; data?: unknown }>;

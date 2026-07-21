@@ -1,4 +1,5 @@
 import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { recoverStaleAgentDispatches } from '@/lib/agent-dispatch-queue';
 import { workflowRunScheduler } from '@/lib/workflow-run-scheduler';
 import { withSpan } from '@/lib/observability';
 
@@ -19,8 +20,11 @@ async function reconcileRunsStep(): Promise<number> {
     { 'workflow.batch_size': reconciliationBatchSize },
     () => runService.reconcileRunningRuns(workflowRunScheduler, reconciliationBatchSize),
   );
+  const recoveredDispatches = await recoverStaleAgentDispatches({
+    take: reconciliationBatchSize,
+  });
   // Agent Dispatch 的退避重试同样通过 Outbox 驱动。Cron 不直接调用 Eve，
   // 只唤醒到期消息，避免维护任务绕过既有的幂等和重试边界。
   await drainRuntimeOutbox();
-  return reconciled;
+  return reconciled + recoveredDispatches;
 }

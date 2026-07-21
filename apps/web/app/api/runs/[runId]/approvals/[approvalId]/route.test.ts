@@ -22,7 +22,9 @@ vi.mock('@/lib/run-api', () => ({
 }));
 vi.mock('@/lib/run-runtime', () => ({
   runService: { resolveApproval: mocks.resolveApproval },
-  drainRuntimeOutbox: mocks.drainOutbox,
+}));
+vi.mock('@/lib/outbox-after-response', () => ({
+  drainOutboxAfterResponse: mocks.drainOutbox,
 }));
 
 const { POST } = await import('./route');
@@ -65,6 +67,30 @@ describe('Approval resolution route', () => {
     const response = await call({ decision: 'denied' });
     expect(response.status).toBe(403);
     expect(mocks.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it('将 Kernel 拒绝转换为可恢复的冲突响应，而不是伪装成成功', async () => {
+    mocks.resolveApproval.mockResolvedValue({
+      result: {
+        status: 'rejected',
+        rejection: {
+          code: 'RUN_VERSION_CONFLICT',
+          message: 'Run version does not match the command.',
+        },
+        state: { run: { version: 9 } },
+      },
+    });
+
+    const response = await call({ decision: 'approved' });
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('etag')).toBe('"9"');
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'RUN_VERSION_CONFLICT',
+        message: 'Run version does not match the command.',
+      },
+    });
   });
 });
 

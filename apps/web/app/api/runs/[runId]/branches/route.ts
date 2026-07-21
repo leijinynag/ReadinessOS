@@ -7,8 +7,9 @@ import {
   requiredIdempotencyKey,
   responseWithRunVersion,
 } from '@/lib/api-response';
+import { drainOutboxAfterResponse } from '@/lib/outbox-after-response';
 import { requireRunSession } from '@/lib/run-api';
-import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { runService } from '@/lib/run-runtime';
 import { assertGuestFeature, assertRunIsActiveForSession } from '@/lib/release-policy';
 
 const branchSchema = z.object({
@@ -38,7 +39,7 @@ export async function POST(request: Request, context: RunRouteContext) {
       branchFromSequence: input.sequence,
       name: input.name,
     });
-    await drainRuntimeOutbox();
+    drainOutboxAfterResponse();
     return responseWithRunVersion({ branch }, branch.version);
   } catch (error) {
     return apiError(error);

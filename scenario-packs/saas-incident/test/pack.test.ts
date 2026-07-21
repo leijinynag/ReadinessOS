@@ -180,6 +180,87 @@ describe('SaaS incident pack', () => {
     }
   });
 
+  it('only wakes the Provider advisor after Provider-specific facts arrive', () => {
+    const providerPolicy = saasIncidentPack.agentPolicy?.advisors.find(
+      (advisor) => advisor.advisorParticipantKey === 'payment-provider',
+    );
+
+    expect(providerPolicy).toMatchObject({
+      triggerEventTypes: ['signal.emitted', 'inject.triggered'],
+      triggerInjectKeys: ['provider-status-update'],
+      triggerSignalKeys: ['provider-contacted', 'provider-recovery-update'],
+    });
+  });
+
+  it('keeps the incident owner path after JSON persistence', () => {
+    const execution = createExecution(42);
+    execution.execute({ type: 'start-run' });
+
+    // Prisma JSON 持久化会移除 undefined 字段，此处模拟一次完整读写。
+    execution.state = JSON.parse(JSON.stringify(execution.state)) as SimulationState<SaasIncidentState>;
+
+    const result = execution.execute({
+      type: 'submit-action',
+      actionType: 'declare-incident',
+      participantId: saasIncidentParticipantIds.incidentCommander,
+      parameters: {},
+    });
+
+    expect(result.status).toBe('accepted');
+    expect(execution.state.world.response.ownerParticipantId).toBe(
+      saasIncidentParticipantIds.incidentCommander,
+    );
+  });
+
+  it('hydrates a missing incident owner field from historical snapshots', () => {
+    const execution = createExecution(42);
+    execution.execute({ type: 'start-run' });
+
+    // 2026-07-19 前创建的快照不含 ownerParticipantId。模拟其从 Prisma
+    // 读取后继续执行一个不写入该字段的命令，确保 Kernel 能正常恢复。
+    const historicalState = JSON.parse(JSON.stringify(execution.state)) as {
+      world: { response: Record<string, unknown> };
+    };
+    delete historicalState.world.response.ownerParticipantId;
+    execution.state = historicalState as SimulationState<SaasIncidentState>;
+
+    const result = execution.execute({
+      type: 'submit-action',
+      actionType: 'inspect-metrics',
+      participantId: saasIncidentParticipantIds.onCallEngineer,
+      parameters: {},
+    });
+
+    expect(result.status).toBe('accepted');
+    expect(execution.state.world.response.ownerParticipantId).toBeNull();
+  });
+
+  it('does not allow repeated metric inspection after monitoring confirms the provider incident', () => {
+    const execution = createExecution(42);
+    execution.execute({ type: 'start-run' });
+
+    const firstInspection = execution.execute({
+      type: 'submit-action',
+      actionType: 'inspect-metrics',
+      participantId: saasIncidentParticipantIds.onCallEngineer,
+      parameters: {},
+    });
+    expect(firstInspection.status).toBe('accepted');
+    expect(execution.state.world.service.providerIncidentConfirmed).toBe(true);
+
+    const repeatedInspection = execution.execute({
+      type: 'submit-action',
+      actionType: 'inspect-metrics',
+      participantId: saasIncidentParticipantIds.onCallEngineer,
+      parameters: {},
+    });
+    expect(repeatedInspection.status).toBe('rejected');
+    expect(repeatedInspection.rejection).toMatchObject({
+      code: 'ACTION_NOT_ALLOWED',
+      message: 'Action precondition is not satisfied.',
+    });
+  });
+
   it('runs the complete payment incident without a database or LLM', () => {
     const execution = runHappyPath(20_260_712);
     const evaluations = execution.kernel.evaluate(execution.state);

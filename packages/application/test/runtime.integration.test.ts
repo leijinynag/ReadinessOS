@@ -19,6 +19,7 @@ import {
 } from '../src/index.js';
 
 const testParticipantId = '018f4c8b-9ae2-7a72-86bd-4f867befef01';
+const testAgentParticipantId = '018f4c8b-9ae2-7a72-86bd-4f867befef02';
 
 const runtimeTestPack: ScenarioPack<{
   phase: 'created' | 'running' | 'paused';
@@ -66,9 +67,44 @@ const runtimeTestPack: ScenarioPack<{
   uiContributions: [],
 });
 
+const approvalRuntimeTestPack: ScenarioPack<{
+  phase: 'created' | 'running' | 'paused';
+  deferredOwnerId?: string;
+}> = assertScenarioPack({
+  ...runtimeTestPack,
+  key: 'runtime-approval-integration-test',
+  manifest: {
+    ...runtimeTestPack.manifest,
+    key: 'runtime-approval-integration-test',
+    name: 'Runtime approval integration test',
+  },
+  participants: [
+    ...runtimeTestPack.participants,
+    {
+      id: testAgentParticipantId,
+      key: 'advisor',
+      displayName: 'Advisor',
+      controller: 'agent',
+      capabilities: [],
+      permissions: ['read:run'],
+      knowledgeScopes: ['run'],
+      objectives: ['complete'],
+    },
+  ],
+  actions: [
+    {
+      key: 'execute-high-risk-action',
+      label: 'Execute high risk action',
+      risk: 'high',
+      approval: 'required',
+      effects: [],
+    },
+  ],
+});
+
 const organizationIds: string[] = [];
 const userIds: string[] = [];
-const registry = new InMemoryScenarioPackRegistry([runtimeTestPack]);
+const registry = new InMemoryScenarioPackRegistry([runtimeTestPack, approvalRuntimeTestPack]);
 
 afterEach(async () => {
   const organizationIdBatch = organizationIds.splice(0);
@@ -151,6 +187,77 @@ describe('PrismaRunRepository', () => {
         expect.objectContaining({
           topic: 'run.event',
           publishedAt: null,
+        }),
+      ]),
+    );
+  });
+
+  it('复盘将同一 Kernel 命令的领域后果关联到已采纳的 Agent 建议', async () => {
+    const fixture = await createFixture();
+    const service = createRunService();
+    const run = await createRun(service, fixture, 'agent-causality-create');
+    await service.execute(startCommand(fixture, run.id, 0, 'agent-causality-start'));
+
+    const target = await prisma.runParticipant.findFirstOrThrow({
+      where: { runId: run.id, key: 'operator' },
+    });
+    const advisor = await prisma.runParticipant.create({
+      data: {
+        runId: run.id,
+        key: 'review-advisor',
+        displayName: 'Review advisor',
+        controller: 'agent',
+        capabilities: [],
+        permissions: ['read:run'],
+        knowledgeScopes: ['run'],
+        objectives: ['complete'],
+      },
+    });
+    const actionCommand = runCommand(fixture, run.id, 1, 'agent-causality-action', {
+      type: 'submit-action',
+      participantId: testParticipantId,
+      actionType: 'acknowledge',
+      parameters: {},
+    });
+    const actionExecution = await service.execute(actionCommand);
+    const recommendation = await prisma.agentRecommendation.create({
+      data: {
+        organizationId: fixture.organizationId,
+        runId: run.id,
+        advisorParticipantId: advisor.id,
+        targetParticipantId: target.id,
+        actionType: 'acknowledge',
+        parameters: {},
+        rationale: '先确认当前运行状态。',
+        evidenceRefs: [],
+        confidence: 0.9,
+        triggerEventTypes: ['run.started'],
+        triggerSequences: [2],
+        observationHash: 'agent-causality-observation',
+        baseRunVersion: 1,
+        baseVirtualTime: 0,
+        expiresAtVirtualTime: 5,
+        status: 'adopted',
+      },
+    });
+    await prisma.decision.create({
+      data: {
+        runId: run.id,
+        recommendationId: recommendation.id,
+        decision: 'adopt',
+        agentDecisionType: 'adopt',
+        kernelCommandId: actionCommand.commandId,
+        executionSequence: actionExecution.result.state.run.latestSequence,
+      },
+    });
+
+    const review = await service.getReview(run.id, fixture.organizationId);
+
+    expect(review.agentCausalChain).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recommendationId: recommendation.id,
+          subsequentEvents: [{ sequence: 4, type: 'action.executed' }],
         }),
       ]),
     );
@@ -742,6 +849,116 @@ describe('PrismaRunRepository', () => {
     const running = await service.getLatestRunningRuns(1);
     expect(running.map((item) => item.id)).toEqual([first.id]);
   });
+
+  it.each([
+    ['approved', 'action.approved'],
+    ['denied', 'action.denied'],
+    ['expired', 'action.approval_expired'],
+  ] as const)(
+    '高风险 Agent 建议审批%s后，将最终 %s sequence 回写到 IC 裁决',
+    async (approvalDecision, eventType) => {
+      const fixture = await createFixture(approvalRuntimeTestPack.key);
+      const service = createRunService();
+      const run = await createRun(service, fixture, `agent-approval-${approvalDecision}-create`);
+      await service.execute(
+        startCommand(fixture, run.id, 0, `agent-approval-${approvalDecision}-start`),
+      );
+      const participants = await prisma.runParticipant.findMany({
+        where: { runId: run.id },
+        select: { id: true, key: true },
+      });
+      const target = participants.find((participant) => participant.key === 'operator');
+      const advisor = participants.find((participant) => participant.key === 'advisor');
+      if (!target || !advisor) throw new Error('Expected runtime participants.');
+
+      const proposalCommandId = randomUUID();
+      const proposal = await service.execute({
+        ...runCommand(fixture, run.id, 1, `agent-approval-${approvalDecision}-proposal`, {
+          type: 'submit-action',
+          // 数据库 RunParticipant 用于 Agent 审计关联；Kernel Command 必须使用
+          // Scenario Pack 的稳定参与方 ID，真实 IC 裁决服务也会按 key 完成映射。
+          participantId: testParticipantId,
+          actionType: 'execute-high-risk-action',
+          parameters: {},
+        }),
+        commandId: proposalCommandId,
+      });
+      const recommendation = await prisma.agentRecommendation.create({
+        data: {
+          organizationId: fixture.organizationId,
+          runId: run.id,
+          advisorParticipantId: advisor.id,
+          targetParticipantId: target.id,
+          actionType: 'execute-high-risk-action',
+          parameters: {},
+          rationale: '需要审批的结构化建议。',
+          evidenceRefs: [],
+          confidence: 0.9,
+          triggerEventTypes: ['run.started'],
+          triggerSequences: [2],
+          observationHash: `agent-approval-${approvalDecision}`,
+          baseRunVersion: 1,
+          baseVirtualTime: 0,
+          expiresAtVirtualTime: 5,
+          status: 'adopted',
+        },
+      });
+      await prisma.decision.create({
+        data: {
+          runId: run.id,
+          recommendationId: recommendation.id,
+          decision: 'adopt',
+          agentDecisionType: 'adopt',
+          kernelCommandId: proposalCommandId,
+          executionSequence: proposal.result.state.run.latestSequence,
+        },
+      });
+      if (approvalDecision === 'expired') {
+        await prisma.approval.update({
+          where: { id: proposalCommandId },
+          data: { expiresAt: new Date('2026-07-11T23:59:00.000Z') },
+        });
+      }
+
+      const latestRun = await service.getRun(run.id, fixture.organizationId);
+      const resolve = service.resolveApproval(
+        {
+          commandId: randomUUID(),
+          organizationId: fixture.organizationId,
+          runId: run.id,
+          actor: {
+            id: fixture.userId,
+            type: 'user',
+            organizationId: fixture.organizationId,
+            displayName: 'Runtime integration operator',
+          },
+          expectedRunVersion: latestRun.version,
+          idempotencyKey: `agent-approval-${approvalDecision}-resolve`,
+          issuedAt: '2026-07-12T00:00:02.000Z',
+        },
+        proposalCommandId,
+        approvalDecision === 'denied' ? 'denied' : 'approved',
+      );
+      if (approvalDecision === 'expired') {
+        await expect(resolve).rejects.toMatchObject<ApplicationError>({
+          code: 'APPROVAL_STALE',
+        });
+      } else {
+        await expect(resolve).resolves.toMatchObject({ result: { status: 'accepted' } });
+      }
+
+      const [finalEvent, decision] = await Promise.all([
+        prisma.runEvent.findFirstOrThrow({
+          where: { runId: run.id, type: eventType },
+          orderBy: { sequence: 'desc' },
+        }),
+        prisma.decision.findFirstOrThrow({
+          where: { runId: run.id, recommendationId: recommendation.id },
+        }),
+      ]);
+      expect(decision.executionSequence).toBe(finalEvent.sequence);
+    },
+  );
 });
 
 function createRunService() {

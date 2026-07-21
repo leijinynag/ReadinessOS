@@ -5,10 +5,11 @@ import {
   apiError,
   parseExpectedRunVersion,
   requiredIdempotencyKey,
-  responseWithRunVersion,
+  responseForCommandResult,
 } from '@/lib/api-response';
+import { drainOutboxAfterResponse } from '@/lib/outbox-after-response';
 import { requireRunSession, userActor } from '@/lib/run-api';
-import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { runService } from '@/lib/run-runtime';
 import { ApplicationError } from '@readinessos/domain-events';
 import { assertRunIsActiveForSession } from '@/lib/release-policy';
 
@@ -47,8 +48,8 @@ export async function POST(request: Request, context: RunRouteContext) {
         parameters: input.parameters,
       },
     });
-    await drainRuntimeOutbox();
-    return responseWithRunVersion({ result: execution.result }, execution.result.state.run.version);
+    drainOutboxAfterResponse();
+    return responseForCommandResult({ result: execution.result }, execution.result.state.run.version);
   } catch (error) {
     return apiError(error);
   }

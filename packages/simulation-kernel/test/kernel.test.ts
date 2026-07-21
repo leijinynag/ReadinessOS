@@ -6,6 +6,7 @@ import {
   all,
   createDeterministicRandom,
   elapsedMinutesGte,
+  getActionPolicyFailure,
   stateEquals,
   validateScenarioDefinition,
   type CreateRunInput,
@@ -361,6 +362,36 @@ describe('simulation kernel', () => {
       'Participant lacks required knowledge scope.',
     ]);
     expect(results.every((result) => result.events[0]?.type === 'action.rejected')).toBe(true);
+  });
+
+  it('reports action preconditions through the reusable policy check', () => {
+    const kernel = new SimulationKernel(createDefinition());
+    const { started } = startRun(kernel);
+    const participant = started.state.participants[ids.commanderId];
+    const action = {
+      ...createDefinition().actions.find((candidate) => candidate.key === 'inspect')!,
+      precondition: stateEquals<FixtureState>(['flags', 'armed'], true),
+    };
+
+    expect(getActionPolicyFailure(started.state, participant!, action)).toEqual({
+      code: 'ACTION_NOT_ALLOWED',
+      message: 'Action precondition is not satisfied.',
+    });
+
+    const armed = kernel.execute(
+      started.state,
+      command(2, 1, {
+        type: 'submit-action',
+        actionType: 'arm-delay',
+        participantId: ids.commanderId,
+        parameters: {},
+      }),
+      createContext(),
+    );
+
+    expect(getActionPolicyFailure(armed.state, armed.state.participants[ids.commanderId]!, action)).toBe(
+      undefined,
+    );
   });
 
   it('replays effects from a full history or a snapshot to the same state', () => {

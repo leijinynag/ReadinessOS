@@ -48,7 +48,9 @@ export const saasIncidentStateSchema = z.object({
   response: z.object({
     incidentDeclared: z.boolean(),
     severity: z.enum(['unknown', 'sev3', 'sev2', 'sev1']),
-    ownerParticipantId: z.string().uuid().optional(),
+    // 旧 Run 的 JSON 快照没有该字段。默认值保证历史状态在下一次
+    // Kernel 校验和重放时能够兼容，而不是因 schema 演进中断演练。
+    ownerParticipantId: z.string().uuid().nullable().default(null),
     statusPagePublished: z.boolean(),
     customerCommsSent: z.boolean(),
     providerContacted: z.boolean(),
@@ -115,7 +117,9 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
     response: {
       incidentDeclared: false,
       severity: 'unknown',
-      ownerParticipantId: undefined,
+      // Run 状态会以 JSON 写入数据库。使用 null 保留路径，避免后续
+      // declare-incident 的 set-state effect 在恢复运行后找不到该字段。
+      ownerParticipantId: null,
       statusPagePublished: false,
       customerCommsSent: false,
       providerContacted: false,
@@ -274,13 +278,11 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       },
       {
         advisorParticipantKey: 'payment-provider',
-        triggerEventTypes: [
-          'signal.emitted',
-          'inject.triggered',
-          'action.executed',
-          'action.approved',
-          'action.denied',
-        ],
+        // Provider 只有在已被联系或明确给出恢复进度后才应介入。初始 outage
+        // 触发时让它提出“验证恢复”既没有事实基础，也会干扰 IC 的处置优先级。
+        triggerEventTypes: ['signal.emitted', 'inject.triggered'],
+        triggerInjectKeys: ['provider-status-update'],
+        triggerSignalKeys: ['provider-contacted', 'provider-recovery-update'],
         recommendationPermissions: [
           { targetParticipantKey: 'on-call-engineer', actionType: 'verify-recovery' },
         ],
@@ -379,6 +381,11 @@ export const saasIncidentPack: ScenarioPack<SaasIncidentState> = assertScenarioP
       requiredCapabilities: ['inspect-metrics'],
       requiredPermissions: ['read:metrics'],
       requiredKnowledgeScopes: ['metrics'],
+      // 首次观测会触发 monitoring-confirmation Inject；确认上游故障后，
+      // 重复拉取同一组指标不再构成有效的下一步，避免 Agent 循环推荐。
+      precondition: not(
+        stateEquals<SaasIncidentState>(['service', 'providerIncidentConfirmed'], true),
+      ),
       risk: 'low',
       approval: 'none',
       effects: [{ kind: 'record-metric', metricKey: 'payment_error_rate', value: 0.47 }],

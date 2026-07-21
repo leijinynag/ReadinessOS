@@ -358,6 +358,12 @@ export function specializeScenarioPack<TState>(
       ...participant,
       controller: overrides.get(participant.id)?.controller ?? participant.controller,
     }));
+  const enabledParticipantKeys = new Set(participants.map((participant) => participant.key));
+  const activeAdvisorKeys = new Set(
+    participants
+      .filter((participant) => participant.controller === 'agent')
+      .map((participant) => participant.key),
+  );
 
   const actions = pack.actions
     .filter((action) => !triggerReferencesDisabledParticipant(action.precondition, enabledIds))
@@ -388,6 +394,23 @@ export function specializeScenarioPack<TState>(
       ...inject,
       effects: filterMissingInjectSchedules(inject.effects),
     })),
+    // ScenarioVersion 可以把一个静态 Agent 改为 Human/System。运行时 Policy
+    // 必须与实际 controller 对齐，防止历史静态声明继续触发无效的 Eve Dispatch。
+    ...(pack.agentPolicy === undefined
+      ? {}
+      : {
+          agentPolicy: {
+            advisors: pack.agentPolicy.advisors.flatMap((advisor) => {
+              if (!activeAdvisorKeys.has(advisor.advisorParticipantKey)) return [];
+              const recommendationPermissions = advisor.recommendationPermissions.filter(
+                (permission) => enabledParticipantKeys.has(permission.targetParticipantKey),
+              );
+              return recommendationPermissions.length === 0
+                ? []
+                : [{ ...advisor, recommendationPermissions }];
+            }),
+          },
+        }),
   };
 }
 
@@ -976,7 +999,14 @@ export class PrismaRunRepository {
       this.client.runEvent.findMany({
         where: { runId },
         orderBy: { sequence: 'asc' },
-        select: { sequence: true, type: true, source: true, simulatedAt: true, payload: true },
+        select: {
+          sequence: true,
+          type: true,
+          source: true,
+          simulatedAt: true,
+          payload: true,
+          causationId: true,
+        },
       }),
       this.listApprovals(runId, organizationId),
       this.client.decision.findMany({
@@ -1050,6 +1080,18 @@ export class PrismaRunRepository {
           .filter((candidate) => candidate.recommendationId === recommendation.id)
           .at(-1);
         const decisionSequence = decision?.executionSequence ?? undefined;
+        const executionEvent =
+          decisionSequence === undefined
+            ? undefined
+            : timeline.find((event) => event.sequence === decisionSequence);
+        // 低风险动作会在一条 Kernel Command 内连续产生 proposed、executed、指标、
+        // 注入和信号等事件。executionSequence 通常是最后一条，不能只看更大的序号。
+        // 审批通过后的实际执行属于新 Command，因此还要按最终事件反查 causationId。
+        const causalCommandIds = new Set(
+          [decision?.kernelCommandId, executionEvent?.causationId].filter(
+            (commandId): commandId is string => Boolean(commandId),
+          ),
+        );
         return {
           recommendationId: recommendation.id,
           advisorParticipantId: recommendation.advisorParticipantId,
@@ -1084,10 +1126,15 @@ export class PrismaRunRepository {
           // Agent 活动不是重放输入。这里仅把已发生在提交之后的领域结果关联给
           // Review，帮助 IC 回看“建议 - 裁决 - 后果”的完整路径。
           subsequentEvents:
-            decisionSequence === undefined
+            causalCommandIds.size === 0
               ? []
               : timeline
-                  .filter((event) => event.sequence > decisionSequence)
+                  .filter(
+                    (event) =>
+                      event.type !== 'action.proposed' &&
+                      event.causationId !== null &&
+                      causalCommandIds.has(event.causationId),
+                  )
                   .map((event) => ({ sequence: event.sequence, type: event.type })),
           subsequentEvaluations:
             decisionSequence === undefined
@@ -1184,6 +1231,25 @@ export class PrismaRunRepository {
       source: persistedSnapshot ? 'snapshot' : 'full',
       state: toInputJson(state) as unknown as Record<string, unknown>,
     };
+  }
+
+  /**
+   * Agent Observation 构建只在服务端读取该状态，用于复用 Kernel 的动作
+   * 前置条件校验。调用方不得把这个完整状态直接暴露给 Agent。
+   */
+  async getCurrentState<TState>(
+    runId: string,
+    organizationId: string,
+    pack: ScenarioPack<TState>,
+  ): Promise<SimulationState<TState>> {
+    const run = await this.requireRun(this.client, runId, organizationId);
+    const kernel = new SimulationKernel(pack);
+    return this.loadState(
+      this.client,
+      run,
+      kernel,
+      jsonRecord(run.scenarioVersion.config),
+    );
   }
 
   async createRemediationItem(input: {
@@ -1560,7 +1626,7 @@ export class PrismaRunRepository {
   }
 
   private async loadState<TState>(
-    tx: Prisma.TransactionClient,
+    tx: PrismaClient | Prisma.TransactionClient,
     run: Awaited<ReturnType<PrismaRunRepository['requireRun']>>,
     kernel: SimulationKernel<TState>,
     config: Record<string, unknown>,
@@ -1569,7 +1635,7 @@ export class PrismaRunRepository {
   }
 
   private async loadStateAtSequence<TState>(
-    tx: Prisma.TransactionClient,
+    tx: PrismaClient | Prisma.TransactionClient,
     run: Awaited<ReturnType<PrismaRunRepository['requireRun']>>,
     kernel: SimulationKernel<TState>,
     config: Record<string, unknown>,
@@ -1937,6 +2003,10 @@ export class PrismaRunRepository {
       ['action.approved', 'action.denied', 'action.approval_expired'].includes(candidate.type),
     )) {
       const approvalId = readRequiredString(jsonRecordOrEmpty(event.payload), 'approvalId');
+      const approval = await tx.approval.findFirst({
+        where: { id: approvalId, runId },
+        select: { requestedByCommandId: true },
+      });
       const status: ApprovalStatus =
         event.type === 'action.approved'
           ? 'approved'
@@ -1951,6 +2021,19 @@ export class PrismaRunRepository {
           resolutionSequence: event.sequence,
         },
       });
+      if (approval) {
+        // Agent 采纳高风险建议时，初始 command 只会产生 approval_requested。
+        // 审批结果才是 Review 因果链中实际的最终裁决节点，因此按原 command
+        // 回写对应 Recommendation Decision 的 sequence。
+        await tx.decision.updateMany({
+          where: {
+            runId,
+            recommendationId: { not: null },
+            kernelCommandId: approval.requestedByCommandId,
+          },
+          data: { executionSequence: event.sequence },
+        });
+      }
       await tx.decision.upsert({
         where: { approvalId },
         create: {
@@ -2094,7 +2177,6 @@ export class RunApplicationService {
     approvalId: string,
     decision: 'approved' | 'denied',
   ): Promise<CommandExecution> {
-    const run = await this.repository.getRun(command.runId, command.organizationId);
     const approval = await this.repository.getApproval(
       command.runId,
       command.organizationId,
@@ -2104,20 +2186,46 @@ export class RunApplicationService {
       throw new ApplicationError('APPROVAL_STALE', 'The approval has already been resolved.');
     }
     const expired = new Date(approval.expiresAt) <= new Date();
-    const execution = await this.repository.execute(
-      {
-        ...command,
-        expectedRunVersion: command.expectedRunVersion ?? run.version,
-        // 过期同样必须经过 Kernel 产生事件，才会从 Snapshot 的 pending
-        // 集合中移除，避免审批投影与权威状态出现分叉。
-        payload: {
-          type: 'resolve-approval',
-          approvalId,
-          decision: expired ? 'expired' : decision,
-        },
-      },
-      this.specializePack(await this.getRunScenarioVersionConfig(command)),
-    );
+    const pack = this.specializePack(await this.getRunScenarioVersionConfig(command));
+    let execution: CommandExecution | undefined;
+
+    // 审批的决策内容只包含“批准/拒绝”且 Kernel 会重新校验审批存在性与动作
+    // 前置条件。不能因为后台虚拟时钟刚推进而让仍然有效的审批永久冲突；因此
+    // 以服务端最新版本提交，并只在提交窗口发生真实并发时重试一次。
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const run = await this.repository.getRun(command.runId, command.organizationId);
+      try {
+        execution = await this.repository.execute(
+          {
+            ...command,
+            expectedRunVersion: run.version,
+            // 过期同样必须经过 Kernel 产生事件，才会从 Snapshot 的 pending
+            // 集合中移除，避免审批投影与权威状态出现分叉。
+            payload: {
+              type: 'resolve-approval',
+              approvalId,
+              decision: expired ? 'expired' : decision,
+            },
+          },
+          pack,
+        );
+      } catch (error) {
+        if (
+          attempt === 0 &&
+          error instanceof ApplicationError &&
+          error.code === 'RUN_VERSION_CONFLICT'
+        ) {
+          continue;
+        }
+        throw error;
+      }
+      if (execution.result.rejection?.code !== 'RUN_VERSION_CONFLICT' || attempt === 1) {
+        break;
+      }
+    }
+    if (!execution) {
+      throw new Error('Approval resolution did not produce a command execution.');
+    }
     if (expired) {
       throw new ApplicationError('APPROVAL_STALE', 'The approval has expired.');
     }

@@ -2,11 +2,13 @@ import {
   type OutboxMessageHandler,
 } from '@readinessos/application';
 import { prisma } from '@readinessos/database';
+import type { AgentAdvisorPolicy } from '@readinessos/scenario-sdk';
+import { start } from 'workflow/api';
 import { z } from 'zod';
 import { AgentRecommendationService } from '@/lib/agent-recommendation-service';
-import { getProductionAgentTurnService } from '@/lib/agent-turn-runtime';
-import { env } from '@/lib/env';
+import { queueAgentDispatch as persistAgentDispatch } from '@/lib/agent-dispatch-queue';
 import { runService } from '@/lib/run-runtime';
+import { agentDispatchWorkflow } from '@/workflows/agent-dispatch';
 
 const runEventPayloadSchema = z.object({
   cursor: z.number().int().positive(),
@@ -14,6 +16,7 @@ const runEventPayloadSchema = z.object({
     runId: z.string().uuid(),
     sequence: z.number().int().positive(),
     type: z.string().min(1),
+    payload: z.record(z.string(), z.unknown()),
   }),
 });
 
@@ -21,6 +24,7 @@ const agentSchedulePayloadSchema = z.object({
   advisorParticipantKey: z.string().min(1),
   eventType: z.string().min(1),
   eventSequence: z.number().int().positive(),
+  eventPayload: z.record(z.string(), z.unknown()),
 });
 
 const agentDispatchPayloadSchema = z.object({
@@ -42,6 +46,13 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
         const payload = runEventPayloadSchema.parse(message.payload);
         if (!message.runId || message.runId !== payload.event.runId) return;
 
+        // 每一条领域事件都可能推进事实版本。先让基于较旧 Observation 的
+        // 待裁决建议失效，避免 UI 继续把它们呈现为可以采纳的当前方案。
+        await recommendationService.supersedeStaleRecommendations(
+          message.runId,
+          message.organizationId,
+        );
+
         // 延后建议以虚拟时间作为唯一到期依据。时钟推进后先让旧建议失效，
         // 再强制为同一顾问创建新的 Observation，避免 IC 继续看到过期方案。
         if (payload.event.type === 'clock.advanced') {
@@ -62,7 +73,7 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
               force: true,
             });
             if (queued.dispatchId) {
-              await queueDispatchMessage({
+              await persistAgentDispatch({
                 organizationId: message.organizationId,
                 runId: message.runId,
                 dispatchId: queued.dispatchId,
@@ -73,7 +84,7 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
 
         const pack = await runService.getRunScenarioPack(message.runId, message.organizationId);
         const policies = pack.agentPolicy?.advisors.filter((advisor) =>
-          advisor.triggerEventTypes.includes(payload.event.type),
+          matchesAgentAdvisorPolicyEvent(advisor, payload.event),
         );
         if (!policies?.length) return;
 
@@ -86,6 +97,7 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
               advisorParticipantKey: advisor.advisorParticipantKey,
               eventType: payload.event.type,
               eventSequence: payload.event.sequence,
+              eventPayload: payload.event.payload,
             }),
           })),
         });
@@ -119,7 +131,10 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
           run?.status !== 'running' ||
           !advisor ||
           !policy ||
-          !policy.triggerEventTypes.includes(payload.eventType)
+          !matchesAgentAdvisorPolicyEvent(policy, {
+            type: payload.eventType,
+            payload: payload.eventPayload,
+          })
         ) {
           return;
         }
@@ -133,7 +148,7 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
           triggerSequences: [payload.eventSequence],
         });
         if (!queued.dispatchId) return;
-        await queueDispatchMessage({
+        await persistAgentDispatch({
           organizationId: message.organizationId,
           runId: message.runId,
           dispatchId: queued.dispatchId,
@@ -144,128 +159,49 @@ export function createAgentRecommendationOutboxHandlers(): Readonly<
       async handle(message) {
         if (!message.runId) return;
         const payload = agentDispatchPayloadSchema.parse(message.payload);
-        const dispatch = await recommendationService.claimDispatch({
+        // Outbox 只负责快速启动 Durable Workflow，不能在这里等待 DeepSeek。
+        // 否则 after() 的请求生命周期被中断时，会留下已锁定的 Dispatch。
+        await start(agentDispatchWorkflow, [{
           dispatchId: payload.dispatchId,
           runId: message.runId,
           organizationId: message.organizationId,
-        });
-        if (!dispatch) return;
-
-        try {
-          const run = await prisma.simulationRun.findFirst({
-            where: { id: dispatch.runId, organizationId: dispatch.organizationId },
-            select: { status: true },
-          });
-          if (run?.status !== 'running') {
-            await recommendationService.markDispatchCompleted({
-              dispatchId: dispatch.id,
-              runId: dispatch.runId,
-              type: 'agent.analysis_skipped',
-              data: { reason: 'Run is no longer running.' },
-            });
-            return;
-          }
-          const turnService = getProductionAgentTurnService(resolveEveOrigin());
-          const result = await turnService.turn({
-            runId: dispatch.runId,
-            organizationId: dispatch.organizationId,
-            participantId: dispatch.advisorParticipantId,
-            input:
-              dispatch.answeredQuestion === undefined
-                ? {
-                    type: 'observe',
-                    intent: dispatch.requestKind === 'compare' ? 'compare' : 'recommend',
-                  }
-                : {
-                    type: 'input-response',
-                    response: {
-                      requestId: dispatch.answeredQuestion.requestId,
-                      ...dispatch.answeredQuestion.answer,
-                    },
-                  },
-          });
-          const observationHash = result.observationHash ?? dispatch.observationHash;
-          if (result.observationHash !== undefined) {
-            await recommendationService.recordDispatchObservation({
-              dispatchId: dispatch.id,
-              runId: dispatch.runId,
-              observationHash: result.observationHash,
-            });
-          }
-
-          if (result.status === 'waiting_for_input') {
-            if (result.inputRequests.length === 0) {
-              throw new Error('Eve is waiting for input without a question payload.');
-            }
-            await recommendationService.markDispatchWaiting({
-              dispatchId: dispatch.id,
-              runId: dispatch.runId,
-              questions: result.inputRequests,
-            });
-            return;
-          }
-
-          if (result.status === 'completed' && result.proposedAction !== undefined) {
-            if (observationHash === undefined) {
-              throw new Error('The Agent proposal has no Observation hash.');
-            }
-            const recommendation = await recommendationService.createRecommendation({
-              dispatchId: dispatch.id,
-              runId: dispatch.runId,
-              organizationId: dispatch.organizationId,
-              action: result.proposedAction,
-              observationHash,
-              ...(result.eveSessionId === undefined
-                ? {}
-                : { eveSessionId: result.eveSessionId }),
-              ...(result.eveTraceIdentity === undefined
-                ? {}
-                : { eveTraceIdentity: result.eveTraceIdentity }),
-            });
-            if (recommendation.status === 'superseded') {
-              const requeued = await recommendationService.requeueFromDispatch({
-                dispatchId: dispatch.id,
-                runId: dispatch.runId,
-                organizationId: dispatch.organizationId,
-              });
-              if (requeued.dispatchId) {
-                await queueDispatchMessage({
-                  organizationId: dispatch.organizationId,
-                  runId: dispatch.runId,
-                  dispatchId: requeued.dispatchId,
-                });
-              }
-            }
-            return;
-          }
-
-          if (result.status === 'completed') {
-            await recommendationService.markDispatchCompleted({
-              dispatchId: dispatch.id,
-              runId: dispatch.runId,
-              type: 'agent.analysis_completed_without_recommendation',
-            });
-            return;
-          }
-          throw new Error(`Eve returned terminal status "${result.status}".`);
-        } catch (error) {
-          // Eve transport、配额或 schema 失败只让 Dispatch 退避重试。领域事件在
-          // 进入这里之前已经被 Kernel 提交并发布，不能被模型故障回滚或阻塞。
-          const retry = await recommendationService.markDispatchRetry({
-            dispatchId: dispatch.id,
-            runId: dispatch.runId,
-            error,
-          });
-          await queueDispatchMessage({
-            organizationId: dispatch.organizationId,
-            runId: dispatch.runId,
-            dispatchId: dispatch.id,
-            nextAttemptAt: retry.nextAttemptAt,
-          });
-        }
+        }]);
       },
     },
   };
+}
+
+/**
+ * Outbox 第一层筛选减少无效 Dispatch；agent.schedule 再做一次同样的检查，
+ * 用于防止 Scenario Version 在消息排队期间发生变化后仍使用过期 Policy。
+ */
+export function matchesAgentAdvisorPolicyEvent(
+  policy: AgentAdvisorPolicy,
+  event: { type: string; payload: Record<string, unknown> },
+): boolean {
+  if (!policy.triggerEventTypes.includes(event.type)) return false;
+  if (event.type === 'inject.triggered') {
+    return matchesPayloadKey(policy.triggerInjectKeys, event.payload.injectKey);
+  }
+  if (event.type === 'signal.emitted') {
+    return matchesPayloadKey(policy.triggerSignalKeys, event.payload.signalKey);
+  }
+  if (
+    event.type === 'action.proposed' ||
+    event.type === 'action.executed' ||
+    event.type === 'action.rejected' ||
+    event.type === 'action.approval_requested'
+  ) {
+    return matchesPayloadKey(policy.triggerActionTypes, event.payload.actionType);
+  }
+  return true;
+}
+
+function matchesPayloadKey(
+  allowed: readonly string[] | undefined,
+  value: unknown,
+): boolean {
+  return allowed === undefined || (typeof value === 'string' && allowed.includes(value));
 }
 
 export async function queueAgentDispatch(input: {
@@ -273,36 +209,7 @@ export async function queueAgentDispatch(input: {
   runId: string;
   dispatchId: string;
 }): Promise<void> {
-  await queueDispatchMessage(input);
-}
-
-async function queueDispatchMessage(input: {
-  organizationId: string;
-  runId: string;
-  dispatchId: string;
-  nextAttemptAt?: Date;
-}): Promise<void> {
-  await prisma.outboxMessage.create({
-    data: {
-      organizationId: input.organizationId,
-      runId: input.runId,
-      topic: 'agent.dispatch',
-      payload: toJson({ dispatchId: input.dispatchId }),
-      ...(input.nextAttemptAt === undefined ? {} : { nextAttemptAt: input.nextAttemptAt }),
-    },
-  });
-}
-
-function resolveEveOrigin(): string {
-  if (env.EVE_RUNTIME_URL) return env.EVE_RUNTIME_URL;
-  const deploymentHost = process.env.VERCEL_URL?.trim();
-  if (deploymentHost) {
-    return `https://${deploymentHost}`;
-  }
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('EVE_RUNTIME_URL or VERCEL_URL is required for Agent dispatch in production.');
-  }
-  return `http://localhost:${process.env.PORT?.trim() || '3000'}`;
+  await persistAgentDispatch(input);
 }
 
 function toJson(value: unknown) {

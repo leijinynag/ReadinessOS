@@ -13,7 +13,10 @@ vi.mock('@/lib/auth-session', () => ({
   getPrimaryOrganizationId: (session: { memberships: { organizationId: string }[] }) =>
     session.memberships[0]?.organizationId,
 }));
-vi.mock('@/lib/run-runtime', () => ({ drainRuntimeOutbox: vi.fn(), runService: {} }));
+vi.mock('@/lib/run-runtime', () => ({ runService: {} }));
+vi.mock('@/lib/outbox-after-response', () => ({
+  drainOutboxAfterResponse: mocks.drainOutbox,
+}));
 
 const { createPostHandler } = await import('./route');
 const POST = createPostHandler({

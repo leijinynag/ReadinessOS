@@ -3,7 +3,8 @@ import { ApplicationError } from '@readinessos/domain-events';
 import { apiError, requiredIdempotencyKey, responseWithRunVersion } from '@/lib/api-response';
 import { getAuthSession, getPrimaryOrganizationId } from '@/lib/auth-session';
 import { withSpan } from '@/lib/observability';
-import { drainRuntimeOutbox, runService } from '@/lib/run-runtime';
+import { drainOutboxAfterResponse } from '@/lib/outbox-after-response';
+import { runService } from '@/lib/run-runtime';
 import { guestRunExpiresAt } from '@/lib/release-policy';
 import {
   createStudioRunService,
@@ -29,7 +30,7 @@ type PostDependencies = {
     simulatedAt: string;
     expiresAt?: string;
   }) => ReturnType<ReturnType<typeof createStudioRunService>['createAndStart']>;
-  drainOutbox: () => Promise<void>;
+  drainOutbox: () => void;
 };
 
 export function createPostHandler(dependencies: PostDependencies) {
@@ -70,7 +71,7 @@ export function createPostHandler(dependencies: PostDependencies) {
               : {}),
           }),
       );
-      await dependencies.drainOutbox();
+      dependencies.drainOutbox();
       return responseWithRunVersion(
         {
           run: result.run,
@@ -91,5 +92,5 @@ export function createPostHandler(dependencies: PostDependencies) {
 export const POST = createPostHandler({
   getSession: getAuthSession,
   createAndStart: (input) => createStudioRunService(runService).createAndStart(input),
-  drainOutbox: drainRuntimeOutbox,
+  drainOutbox: drainOutboxAfterResponse,
 });

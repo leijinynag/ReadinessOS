@@ -118,6 +118,26 @@ describe('AgentTurnService', () => {
 
     expect(runtime.sendObservation).toHaveBeenCalledWith(handle, observation, { intent: 'compare' });
   });
+
+  it('预检 Observation 可复用于同一次 Eve 分析，避免读取两次角色事实', async () => {
+    const runtime = fakeRuntime('completed');
+    const buildObservation = vi.fn().mockResolvedValue(observation);
+    const service = new AgentTurnService({
+      runtimeFactory: () => runtime,
+      buildObservation,
+      requireAgentParticipant: vi.fn().mockResolvedValue({ agentKey: 'director' }),
+    });
+    const prepared = await service.buildObservation({
+      runId: '018f4c8b-9ae2-7a72-86bd-4f867befef02',
+      organizationId: '018f4c8b-9ae2-7a72-86bd-4f867befef03',
+      participantId: handle.runParticipantId,
+    });
+
+    await service.turn(request({ type: 'observe', observation: prepared }));
+
+    expect(buildObservation).toHaveBeenCalledOnce();
+    expect(runtime.sendObservation).toHaveBeenCalledWith(handle, observation);
+  });
 });
 
 function fakeRuntime(

@@ -310,10 +310,10 @@ export class EveAgentRuntime implements AgentRuntime {
       );
       throw error;
     }
-    const status = mapStatus(result.status);
+    const status = mapStatus(result);
     let proposedAction: ProposedAction | undefined;
     let validationError: unknown;
-    if (result.status === 'completed' && result.data !== undefined) {
+    if (status === 'completed' && result.data !== undefined) {
       try {
         proposedAction = validateProposedActionContext(validationContext, result.data);
       } catch (error) {
@@ -409,8 +409,13 @@ export function createEveAgentRuntime(
   return new EveAgentRuntime(eve, new PrismaAgentRuntimeStore(client));
 }
 
-function mapStatus(status: MessageResult['status']): AgentRuntimeStatus {
-  return status === 'waiting' ? 'waiting_for_input' : status;
+function mapStatus(result: Pick<MessageResult<unknown>, 'status' | 'data' | 'inputRequests'>): AgentRuntimeStatus {
+  if (result.status !== 'waiting') return result.status;
+
+  // Eve 会在结果已完成后将 durable session 置为 “等待下一条普通用户消息”。
+  // 这不是 ask_question 的 HITL 状态：没有 inputRequests 时，平台必须消费
+  // 已返回的结构化结果并结束本次 Observation，下一轮重新创建 session。
+  return result.inputRequests.length > 0 ? 'waiting_for_input' : 'completed';
 }
 
 function toHandle(link: {

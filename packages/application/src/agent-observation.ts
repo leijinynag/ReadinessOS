@@ -1,6 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScenarioPack } from '@readinessos/scenario-sdk';
+import { getActionPolicyFailure } from '@readinessos/simulation-kernel';
 import { observationSchema, type Observation } from './agent-runtime';
+import { PrismaRunRepository } from './runtime';
 
 const publicEventTypes = new Set([
   'run.created',
@@ -14,7 +16,11 @@ const publicEventTypes = new Set([
 
 /** 从参与方投影构造最小观察，不读取完整 Snapshot/WorldState。 */
 export class AgentObservationService {
-  constructor(private readonly client: PrismaClient) {}
+  private readonly runRepository: PrismaRunRepository;
+
+  constructor(private readonly client: PrismaClient) {
+    this.runRepository = new PrismaRunRepository(client);
+  }
 
   async build(input: {
     runId: string;
@@ -37,7 +43,13 @@ export class AgentObservationService {
             virtualTime: true,
             // Observation 对 Eve 暴露的是当前 Run 的参与方主键。该 ID 可以被
             // Recommendation 持久化并受外键保护；Kernel 静态 ID 只留在服务端映射。
-            participants: { select: { id: true, key: true } },
+            participants: {
+              select: {
+                id: true,
+                key: true,
+                projection: { select: { data: true } },
+              },
+            },
           },
         },
         projection: { select: { data: true } },
@@ -61,6 +73,13 @@ export class AgentObservationService {
       participant.run.participants.map((candidate) => [candidate.key, candidate]),
     );
     const packActions = new Map(input.pack.actions.map((action) => [action.key, action]));
+    // 完整状态只在平台进程内用于过滤不满足 Kernel 前置条件的动作，绝不能
+    // 放入 Observation。Eve 只能收到各自角色投影的 visibleState。
+    const currentState = await this.runRepository.getCurrentState(
+      input.runId,
+      input.organizationId,
+      input.pack,
+    );
     const events = await this.client.runEvent.findMany({
       where: { runId: input.runId, organizationId: input.organizationId },
       orderBy: { sequence: 'desc' },
@@ -86,7 +105,7 @@ export class AgentObservationService {
         displayName: participant.displayName,
         objectives: stringArray(participant.objectives),
       },
-      virtualTimeMinutes: participant.run.virtualTime,
+      virtualTimeMinutes: currentState.run.virtualTimeMinutes,
       visibleState: projection,
       visibleSignals,
       recentEvents: visibleEvents.map((event) => ({
@@ -94,13 +113,23 @@ export class AgentObservationService {
         type: event.type,
         summary: event.type,
       })),
-      // 可建议动作来自 Pack 的显式授权，而非 advisor 自己的 capability。
-      // 目标参与方仍在 Kernel 命令提交时接受完整权限与前置条件校验。
+      // 动作必须同时通过场景 Pack 的显式建议授权和当前 Kernel 状态的策略
+      // 校验。最终提交时 Kernel 会再次校验，避免 Observation 与执行之间的竞态。
       availableActions: advisorPolicy.recommendationPermissions.flatMap((permission) => {
         const target = packParticipants.get(permission.targetParticipantKey);
         const runTarget = runParticipants.get(permission.targetParticipantKey);
         const action = packActions.get(permission.actionType);
         if (!target || !runTarget || !action) return [];
+        const targetProjection = objectValue(runTarget.projection?.data);
+        const targetKernelParticipantId =
+          typeof targetProjection.id === 'string' ? targetProjection.id : target.id;
+        const targetKernelParticipant = currentState.participants[targetKernelParticipantId];
+        if (
+          !targetKernelParticipant ||
+          getActionPolicyFailure(currentState, targetKernelParticipant, action) !== undefined
+        ) {
+          return [];
+        }
         return [
           {
             targetParticipantId: runTarget.id,

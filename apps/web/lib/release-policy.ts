@@ -100,7 +100,7 @@ export function guestRunExpiresAt(now = new Date()): Date {
 
 export function assertGuestFeature(
   session: AuthSession,
-  feature: 'branch' | 'director-inject' | 'agent-turn',
+  feature: 'branch' | 'director-inject' | 'agent-recommendation',
 ): void {
   if (!session.isGuest) return;
   throw new ApplicationError(

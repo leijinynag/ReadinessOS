@@ -469,17 +469,25 @@ export class SimulationKernel<TState> {
     context: KernelContext,
   ): KernelResult<TState> {
     commandEnvelopeSchema.parse(command);
+    const normalizedState = this.normalizeState(state);
 
-    if (command.organizationId !== state.run.organizationId || command.runId !== state.run.runId) {
-      return this.reject(state, 'VALIDATION_ERROR', 'Command does not match the current run.');
+    if (
+      command.organizationId !== normalizedState.run.organizationId ||
+      command.runId !== normalizedState.run.runId
+    ) {
+      return this.reject(
+        normalizedState,
+        'VALIDATION_ERROR',
+        'Command does not match the current run.',
+      );
     }
 
     if (
-      state.run.appliedCommandIds.includes(command.commandId) ||
-      state.run.appliedIdempotencyKeys.includes(command.idempotencyKey)
+      normalizedState.run.appliedCommandIds.includes(command.commandId) ||
+      normalizedState.run.appliedIdempotencyKeys.includes(command.idempotencyKey)
     ) {
       return {
-        state,
+        state: normalizedState,
         events: [],
         sideEffects: [],
         evaluations: [],
@@ -487,19 +495,23 @@ export class SimulationKernel<TState> {
       };
     }
 
-    if (command.expectedRunVersion !== state.run.version) {
-      return this.reject(state, 'RUN_VERSION_CONFLICT', 'Run version does not match the command.');
+    if (command.expectedRunVersion !== normalizedState.run.version) {
+      return this.reject(
+        normalizedState,
+        'RUN_VERSION_CONFLICT',
+        'Run version does not match the command.',
+      );
     }
 
     if (
-      this.isTerminal(state) &&
+      this.isTerminal(normalizedState) &&
       command.payload.type !== 'create-checkpoint' &&
       command.payload.type !== 'create-branch'
     ) {
-      return this.reject(state, 'RUN_TERMINAL', 'Terminal runs cannot accept this command.');
+      return this.reject(normalizedState, 'RUN_TERMINAL', 'Terminal runs cannot accept this command.');
     }
 
-    let workingState = cloneState(state);
+    let workingState = normalizedState;
     const events: DomainEvent[] = [];
     const sideEffects: SideEffectIntent[] = [];
     let eventIndex = 0;
@@ -537,7 +549,11 @@ export class SimulationKernel<TState> {
     switch (payload.type) {
       case 'start-run': {
         if (workingState.run.status !== 'created') {
-          return this.reject(state, 'ACTION_NOT_ALLOWED', 'Only a created run can be started.');
+          return this.reject(
+            normalizedState,
+            'ACTION_NOT_ALLOWED',
+            'Only a created run can be started.',
+          );
         }
         append({
           type: 'run.started',
@@ -555,7 +571,11 @@ export class SimulationKernel<TState> {
 
       case 'pause-run': {
         if (workingState.run.status !== 'running') {
-          return this.reject(state, 'ACTION_NOT_ALLOWED', 'Only a running run can be paused.');
+          return this.reject(
+            normalizedState,
+            'ACTION_NOT_ALLOWED',
+            'Only a running run can be paused.',
+          );
         }
         append({
           type: 'run.paused',
@@ -568,7 +588,11 @@ export class SimulationKernel<TState> {
 
       case 'resume-run': {
         if (workingState.run.status !== 'paused') {
-          return this.reject(state, 'ACTION_NOT_ALLOWED', 'Only a paused run can be resumed.');
+          return this.reject(
+            normalizedState,
+            'ACTION_NOT_ALLOWED',
+            'Only a paused run can be resumed.',
+          );
         }
         append({
           type: 'run.resumed',
@@ -585,11 +609,15 @@ export class SimulationKernel<TState> {
 
       case 'advance-clock': {
         if (workingState.run.status !== 'running') {
-          return this.reject(state, 'ACTION_NOT_ALLOWED', 'Only a running run can advance time.');
+          return this.reject(
+            normalizedState,
+            'ACTION_NOT_ALLOWED',
+            'Only a running run can advance time.',
+          );
         }
         if (!Number.isInteger(payload.minutes) || payload.minutes <= 0) {
           return this.reject(
-            state,
+            normalizedState,
             'VALIDATION_ERROR',
             'Clock minutes must be a positive integer.',
           );
@@ -606,7 +634,11 @@ export class SimulationKernel<TState> {
 
       case 'submit-action': {
         if (workingState.run.status !== 'running') {
-          return this.reject(state, 'ACTION_NOT_ALLOWED', 'Only a running run can submit actions.');
+          return this.reject(
+            normalizedState,
+            'ACTION_NOT_ALLOWED',
+            'Only a running run can submit actions.',
+          );
         }
         const participant = workingState.participants[payload.participantId];
         const action = this.definition.actions.find(
@@ -625,7 +657,7 @@ export class SimulationKernel<TState> {
           );
         }
 
-        const policyFailure = this.getActionPolicyFailure(workingState, participant, action);
+        const policyFailure = getActionPolicyFailure(workingState, participant, action);
         if (policyFailure) {
           return this.recordActionRejection(
             workingState,
@@ -675,7 +707,7 @@ export class SimulationKernel<TState> {
       case 'resolve-approval': {
         const pendingApproval = workingState.pendingApprovals[payload.approvalId];
         if (!pendingApproval) {
-          return this.reject(state, 'APPROVAL_STALE', 'The approval no longer exists.');
+          return this.reject(normalizedState, 'APPROVAL_STALE', 'The approval no longer exists.');
         }
         if (payload.decision === 'expired') {
           append({
@@ -703,12 +735,20 @@ export class SimulationKernel<TState> {
         );
         const participant = workingState.participants[pendingApproval.participantId];
         if (!action || !participant) {
-          return this.reject(state, 'APPROVAL_STALE', 'The approved action is no longer valid.');
+          return this.reject(
+            normalizedState,
+            'APPROVAL_STALE',
+            'The approved action is no longer valid.',
+          );
         }
 
-        const policyFailure = this.getActionPolicyFailure(workingState, participant, action);
+        const policyFailure = getActionPolicyFailure(workingState, participant, action);
         if (policyFailure) {
-          return this.reject(state, 'APPROVAL_STALE', 'The action preconditions have changed.');
+          return this.reject(
+            normalizedState,
+            'APPROVAL_STALE',
+            'The action preconditions have changed.',
+          );
         }
 
         append({
@@ -728,7 +768,11 @@ export class SimulationKernel<TState> {
           (candidate) => candidate.key === payload.injectKey,
         );
         if (!inject || workingState.triggeredInjectKeys.includes(payload.injectKey)) {
-          return this.reject(state, 'ACTION_NOT_ALLOWED', 'The inject is unavailable.');
+          return this.reject(
+            normalizedState,
+            'ACTION_NOT_ALLOWED',
+            'The inject is unavailable.',
+          );
         }
         this.triggerInject(() => workingState, inject, append, sideEffects);
         break;
@@ -785,7 +829,7 @@ export class SimulationKernel<TState> {
     initialState: SimulationState<TState>,
     events: readonly DomainEvent[],
   ): SimulationState<TState> {
-    let state = cloneState(initialState);
+    let state = this.normalizeState(initialState);
     for (const event of events) {
       state = this.applyEvent(state, event);
     }
@@ -1269,29 +1313,6 @@ export class SimulationKernel<TState> {
     this.applyEffects(getState, inject.effects, append, sideEffects);
   }
 
-  private getActionPolicyFailure(
-    state: SimulationState<TState>,
-    participant: RuntimeParticipant,
-    action: ActionDefinition<TState>,
-  ): KernelRejection | undefined {
-    if (participant.status !== 'active') {
-      return { code: 'ACTION_NOT_ALLOWED', message: 'Participant is not active.' };
-    }
-    if (!containsAll(participant.capabilities, action.requiredCapabilities)) {
-      return { code: 'ACTION_NOT_ALLOWED', message: 'Participant lacks required capabilities.' };
-    }
-    if (!containsAll(participant.permissions, action.requiredPermissions)) {
-      return { code: 'ACTION_NOT_ALLOWED', message: 'Participant lacks required permissions.' };
-    }
-    if (!containsAll(participant.knowledgeScopes, action.requiredKnowledgeScopes)) {
-      return { code: 'ACTION_NOT_ALLOWED', message: 'Participant lacks required knowledge scope.' };
-    }
-    if (action.precondition && !evaluateTrigger(action.precondition, state)) {
-      return { code: 'ACTION_NOT_ALLOWED', message: 'Action precondition is not satisfied.' };
-    }
-    return undefined;
-  }
-
   private recordActionRejection(
     state: SimulationState<TState>,
     command: RunCommand,
@@ -1347,6 +1368,18 @@ export class SimulationKernel<TState> {
 
   private assertValidState(state: SimulationState<TState>): void {
     this.definition.stateSchema.parse(state.world);
+  }
+
+  /**
+   * Run Snapshot 以 JSON 形式长期保存。场景 schema 新增带默认值的字段后，
+   * 历史 Snapshot 仍可能没有该字段；每次进入 Kernel 时统一使用 Zod 输出
+   * 归一化 WorldState，确保默认值会回写到下一份权威运行状态。
+   */
+  private normalizeState(state: SimulationState<TState>): SimulationState<TState> {
+    return {
+      ...cloneState(state),
+      world: this.definition.stateSchema.parse(state.world) as TState,
+    };
   }
 
   private assertSignalAudience(effect: Extract<Effect, { kind: 'emit-signal' }>): void {
@@ -1406,6 +1439,33 @@ export function evaluateTrigger<TState>(
         trigger.count
       );
   }
+}
+
+/**
+ * 这是提交动作前的唯一策略校验。Application 可用它筛掉当前无法执行的
+ * Agent 建议动作，但不能据此执行任何动作；真正提交时 Kernel 仍会再次校验。
+ */
+export function getActionPolicyFailure<TState>(
+  state: SimulationState<TState>,
+  participant: RuntimeParticipant,
+  action: ActionDefinition<TState>,
+): KernelRejection | undefined {
+  if (participant.status !== 'active') {
+    return { code: 'ACTION_NOT_ALLOWED', message: 'Participant is not active.' };
+  }
+  if (!containsAll(participant.capabilities, action.requiredCapabilities)) {
+    return { code: 'ACTION_NOT_ALLOWED', message: 'Participant lacks required capabilities.' };
+  }
+  if (!containsAll(participant.permissions, action.requiredPermissions)) {
+    return { code: 'ACTION_NOT_ALLOWED', message: 'Participant lacks required permissions.' };
+  }
+  if (!containsAll(participant.knowledgeScopes, action.requiredKnowledgeScopes)) {
+    return { code: 'ACTION_NOT_ALLOWED', message: 'Participant lacks required knowledge scope.' };
+  }
+  if (action.precondition && !evaluateTrigger(action.precondition, state)) {
+    return { code: 'ACTION_NOT_ALLOWED', message: 'Action precondition is not satisfied.' };
+  }
+  return undefined;
 }
 
 function validateUniqueKeys(

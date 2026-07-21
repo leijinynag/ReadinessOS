@@ -70,6 +70,18 @@ const pack: ScenarioPack<{ phase: 'ready' }> = assertScenarioPack({
       effects: [],
     },
   ],
+  agentPolicy: {
+    advisors: [
+      {
+        advisorParticipantKey: 'agent',
+        triggerEventTypes: ['run.started'],
+        recommendationPermissions: [
+          { targetParticipantKey: 'operator', actionType: 'notify' },
+          { targetParticipantKey: 'agent', actionType: 'notify' },
+        ],
+      },
+    ],
+  },
   signals: [{ key: 'run-update', label: 'Run update', requiredKnowledgeScopes: ['run'] }],
   injects: [
     {
@@ -118,6 +130,7 @@ describe('specializeScenarioPack', () => {
         recipients: [participantIds.human],
       },
     ]);
+    expect(specialized.agentPolicy?.advisors).toEqual([]);
 
     // 内核构造会重新校验所有 effects，证明专门化后不存在悬空参与方引用。
     const kernel = new SimulationKernel(specialized);
@@ -134,6 +147,26 @@ describe('specializeScenarioPack', () => {
     );
     expect(created.participants[participantIds.agent]).toBeUndefined();
     expect(pack.participants).toHaveLength(2);
+  });
+
+  it('仅保留运行时仍为 Agent 且目标参与方仍启用的顾问授权', () => {
+    const specialized = specializeScenarioPack(pack, {
+      packKey: pack.key,
+      participants: [
+        { id: participantIds.human, enabled: true, controller: 'human' },
+        { id: participantIds.agent, enabled: true, controller: 'agent' },
+      ],
+    });
+
+    expect(specialized.agentPolicy?.advisors).toEqual([
+      expect.objectContaining({
+        advisorParticipantKey: 'agent',
+        recommendationPermissions: [
+          { targetParticipantKey: 'operator', actionType: 'notify' },
+          { targetParticipantKey: 'agent', actionType: 'notify' },
+        ],
+      }),
+    ]);
   });
 
   it.each([

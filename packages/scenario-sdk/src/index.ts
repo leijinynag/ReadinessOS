@@ -35,6 +35,13 @@ export interface AgentRecommendationPermission {
 export interface AgentAdvisorPolicy {
   readonly advisorParticipantKey: string;
   readonly triggerEventTypes: readonly string[];
+  /**
+   * 细粒度筛选只作用于对应事件。它让场景能表达“收到特定 Provider
+   * 信号才分析”，避免通用 Inject 或 Signal 产生无意义的 Agent 唤醒。
+   */
+  readonly triggerInjectKeys?: readonly string[];
+  readonly triggerSignalKeys?: readonly string[];
+  readonly triggerActionTypes?: readonly string[];
   readonly recommendationPermissions: readonly AgentRecommendationPermission[];
 }
 
@@ -123,6 +130,7 @@ export function validateScenarioPack<TState>(
       if (advisor.triggerEventTypes.length === 0) {
         errors.push(`Agent advisor ${advisor.advisorParticipantKey} 必须声明触发事件。`);
       }
+      validateAgentTriggerFilters(pack, advisor, errors);
 
       const permissions = new Set<string>();
       for (const permission of advisor.recommendationPermissions) {
@@ -187,4 +195,77 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function containsAll(values: readonly string[], required: readonly string[] | undefined): boolean {
   return required?.every((item) => values.includes(item)) ?? true;
+}
+
+function validateAgentTriggerFilters<TState>(
+  pack: ScenarioPack<TState>,
+  advisor: AgentAdvisorPolicy,
+  errors: string[],
+): void {
+  const eventTypes = new Set(advisor.triggerEventTypes);
+  validateUniqueTriggerValues(advisor.advisorParticipantKey, 'inject', advisor.triggerInjectKeys, errors);
+  validateUniqueTriggerValues(advisor.advisorParticipantKey, 'signal', advisor.triggerSignalKeys, errors);
+  validateUniqueTriggerValues(advisor.advisorParticipantKey, 'action', advisor.triggerActionTypes, errors);
+
+  if (advisor.triggerInjectKeys !== undefined && !eventTypes.has('inject.triggered')) {
+    errors.push(
+      `Agent advisor ${advisor.advisorParticipantKey} 声明了 inject 筛选，但未订阅 inject.triggered。`,
+    );
+  }
+  if (advisor.triggerSignalKeys !== undefined && !eventTypes.has('signal.emitted')) {
+    errors.push(
+      `Agent advisor ${advisor.advisorParticipantKey} 声明了 signal 筛选，但未订阅 signal.emitted。`,
+    );
+  }
+  if (
+    advisor.triggerActionTypes !== undefined &&
+    ![
+      'action.proposed',
+      'action.executed',
+      'action.rejected',
+      'action.approval_requested',
+    ].some((type) => eventTypes.has(type))
+  ) {
+    errors.push(
+      `Agent advisor ${advisor.advisorParticipantKey} 声明了 action 筛选，但未订阅可携带 actionType 的动作事件。`,
+    );
+  }
+
+  const injectKeys = new Set(pack.injects.map((inject) => inject.key));
+  for (const key of advisor.triggerInjectKeys ?? []) {
+    if (!injectKeys.has(key)) {
+      errors.push(`Agent advisor ${advisor.advisorParticipantKey} 引用了不存在的 Inject：${key}。`);
+    }
+  }
+  const signalKeys = new Set(pack.signals.map((signal) => signal.key));
+  for (const key of advisor.triggerSignalKeys ?? []) {
+    if (!signalKeys.has(key)) {
+      errors.push(`Agent advisor ${advisor.advisorParticipantKey} 引用了不存在的 Signal：${key}。`);
+    }
+  }
+  const actionKeys = new Set(pack.actions.map((action) => action.key));
+  for (const key of advisor.triggerActionTypes ?? []) {
+    if (!actionKeys.has(key)) {
+      errors.push(`Agent advisor ${advisor.advisorParticipantKey} 引用了不存在的动作：${key}。`);
+    }
+  }
+}
+
+function validateUniqueTriggerValues(
+  advisorKey: string,
+  kind: 'inject' | 'signal' | 'action',
+  values: readonly string[] | undefined,
+  errors: string[],
+): void {
+  if (values === undefined) return;
+  if (values.length === 0) {
+    errors.push(`Agent advisor ${advisorKey} 的 ${kind} 触发筛选不能为空。`);
+    return;
+  }
+  if (values.some((value) => value.length === 0)) {
+    errors.push(`Agent advisor ${advisorKey} 的 ${kind} 触发筛选不能包含空值。`);
+  }
+  if (new Set(values).size !== values.length) {
+    errors.push(`Agent advisor ${advisorKey} 的 ${kind} 触发筛选包含重复值。`);
+  }
 }

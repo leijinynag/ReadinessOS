@@ -88,3 +88,36 @@ export function responseWithRunVersion<T>(body: T, version: number, status = 200
     },
   });
 }
+
+/**
+ * Kernel 会把一部分业务拒绝作为可审计的结果返回，例如动作权限不足时仍会
+ * 写入 `action.rejected`。HTTP 层必须把它转换为非 2xx 响应，否则客户端会
+ * 把“已被 Kernel 拒绝”错误显示为“已接受”。
+ */
+export function responseForCommandResult<T extends {
+  status: 'accepted' | 'rejected' | 'duplicate';
+  rejection?: { code: string; message: string };
+}>(
+  body: { result: T },
+  version: number,
+): NextResponse {
+  if (body.result.status !== 'rejected' || !body.result.rejection) {
+    return responseWithRunVersion(body, version);
+  }
+
+  const { code, message } = body.result.rejection;
+  const status = code === 'RUN_VERSION_CONFLICT' || code === 'APPROVAL_STALE' ? 409 : 400;
+  return NextResponse.json(
+    {
+      error: { code, message },
+      result: body.result,
+    },
+    {
+      status,
+      headers: {
+        ETag: `"${version}"`,
+        'Cache-Control': 'no-store',
+      },
+    },
+  );
+}

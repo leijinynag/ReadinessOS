@@ -377,6 +377,7 @@ model Decision {
 
   @@index([recommendationId])
   @@index([runId, sequence])
+  @@index([runId, kernelCommandId])
   @@index([runId, createdAt])
   @@map("decisions")
 }

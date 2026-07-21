@@ -84,6 +84,12 @@ export type AgentDispatchClaim = {
     | undefined;
 };
 
+export type RecoveredAgentDispatch = {
+  id: string;
+  runId: string;
+  organizationId: string;
+};
+
 type JsonRecord = Record<string, unknown>;
 
 /**
@@ -135,6 +141,48 @@ export class AgentRecommendationService {
       orderBy: { createdAt: 'desc' },
     });
     return questions.map(toQuestionSummary);
+  }
+
+  /**
+   * 新领域事实提交后，基于旧版本 Observation 的待裁决/延后建议必须立即退出
+   * 决策中心。已采纳或已修改建议属于复盘因果链，因此不能在这里被改写。
+   */
+  async supersedeStaleRecommendations(
+    runId: string,
+    organizationId: string,
+  ): Promise<readonly { id: string; advisorParticipantId: string }[]> {
+    return this.client.$transaction(async (tx) => {
+      const run = await requireRunTx(tx, runId, organizationId);
+      const stale = await tx.agentRecommendation.findMany({
+        where: {
+          runId,
+          organizationId,
+          status: { in: ['pending', 'deferred'] },
+          baseRunVersion: { lt: run.version },
+        },
+        select: { id: true, advisorParticipantId: true, baseRunVersion: true, status: true },
+      });
+      for (const recommendation of stale) {
+        await tx.agentRecommendation.update({
+          where: { id: recommendation.id },
+          data: { status: 'superseded' },
+        });
+        await appendActivityTx(tx, runId, {
+          type: 'agent.recommendation_superseded',
+          recommendationId: recommendation.id,
+          data: {
+            reason: 'Run version changed after recommendation was created.',
+            previousStatus: recommendation.status,
+            baseRunVersion: recommendation.baseRunVersion,
+            currentRunVersion: run.version,
+          },
+        });
+      }
+      return stale.map((recommendation) => ({
+        id: recommendation.id,
+        advisorParticipantId: recommendation.advisorParticipantId,
+      }));
+    });
   }
 
   /**
@@ -402,6 +450,70 @@ export class AgentRecommendationService {
     return toDispatchClaim(dispatch);
   }
 
+  /**
+   * Workflow 宿主可能在模型响应前终止，导致 Dispatch 永久停留在 running。
+   * 这里只恢复已超过锁租约的记录；仍在有效租约内的 Workflow 不会被抢占。
+   */
+  async recoverStaleDispatches(input: {
+    lockedBefore: Date;
+    now?: Date;
+    take?: number;
+    organizationId?: string;
+    runId?: string;
+  }): Promise<readonly RecoveredAgentDispatch[]> {
+    const now = input.now ?? new Date();
+    const candidates = await this.client.agentDispatch.findMany({
+      where: {
+        status: 'running',
+        lockedAt: { lte: input.lockedBefore },
+        ...(input.organizationId === undefined
+          ? {}
+          : { organizationId: input.organizationId }),
+        ...(input.runId === undefined ? {} : { runId: input.runId }),
+      },
+      orderBy: { lockedAt: 'asc' },
+      take: Math.min(Math.max(input.take ?? 50, 1), 500),
+      select: { id: true },
+    });
+    const recovered: RecoveredAgentDispatch[] = [];
+
+    for (const candidate of candidates) {
+      const dispatch = await this.client.$transaction(async (tx) => {
+        // 二次条件更新是锁租约的最终裁决：如果原 Workflow 已经完成或续租，
+        // 本次对账不会覆盖其最新状态，也不会额外写入恢复审计。
+        const updated = await tx.agentDispatch.updateMany({
+          where: {
+            id: candidate.id,
+            status: 'running',
+            lockedAt: { lte: input.lockedBefore },
+          },
+          data: {
+            status: 'pending',
+            lockedAt: null,
+            nextAttemptAt: now,
+          },
+        });
+        if (updated.count !== 1) return undefined;
+
+        const recoveredDispatch = await tx.agentDispatch.findUniqueOrThrow({
+          where: { id: candidate.id },
+          select: { id: true, runId: true, organizationId: true },
+        });
+        await appendActivityTx(tx, recoveredDispatch.runId, {
+          type: 'agent.dispatch_recovered',
+          dispatchId: recoveredDispatch.id,
+          data: {
+            lockedBefore: input.lockedBefore.toISOString(),
+            recoveredAt: now.toISOString(),
+          },
+        });
+        return recoveredDispatch;
+      });
+      if (dispatch) recovered.push(dispatch);
+    }
+    return recovered;
+  }
+
   async markDispatchCompleted(input: {
     dispatchId: string;
     runId: string;
@@ -555,6 +667,40 @@ export class AgentRecommendationService {
         data: { message: errorMessage(input.error), retryInSeconds: delaySeconds },
       });
       return { nextAttemptAt };
+    });
+  }
+
+  /**
+   * 不可恢复的分析失败需要释放 activeKey。否则同一角色后续的业务事实无法再
+   * 创建新 Dispatch，且自动时钟会被一个永远不能成功的模型调用间接影响。
+   */
+  async markDispatchFailed(input: {
+    dispatchId: string;
+    runId: string;
+    error: unknown;
+  }): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      const dispatch = await tx.agentDispatch.findUniqueOrThrow({
+        where: { id: input.dispatchId },
+        select: { runId: true },
+      });
+      if (dispatch.runId !== input.runId) {
+        throw new ApplicationError('NOT_FOUND', 'Agent dispatch was not found for this run.');
+      }
+      await tx.agentDispatch.update({
+        where: { id: input.dispatchId },
+        data: {
+          status: 'failed',
+          activeKey: null,
+          lockedAt: null,
+          lastError: errorMessage(input.error),
+        },
+      });
+      await appendActivityTx(tx, input.runId, {
+        type: 'agent.analysis_terminal_failed',
+        dispatchId: input.dispatchId,
+        data: { message: errorMessage(input.error) },
+      });
     });
   }
 
@@ -950,6 +1096,19 @@ export class AgentRecommendationService {
         expectedRunVersion: reservation.baseRunVersion,
       });
       await this.client.$transaction(async (tx) => {
+        // IC 的裁决需要保留，方便 Review 解释“人采纳了建议但 Kernel 为什么没有
+        // 产生后果”。不过业务命令被拒绝时，旧事实基线已经不能再被视为可执行建议。
+        if (execution.rejected) {
+          await tx.agentRecommendation.updateMany({
+            where: {
+              id: reservation.recommendationId,
+              status: {
+                in: [AgentRecommendationStatus.adopted, AgentRecommendationStatus.modified],
+              },
+            },
+            data: { status: AgentRecommendationStatus.superseded },
+          });
+        }
         await tx.decision.update({
           where: { id: reservation.decisionId },
           data: {

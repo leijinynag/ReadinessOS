@@ -1,7 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { prisma } from '@readinessos/database';
 import type { ScenarioPack } from '@readinessos/scenario-sdk';
+import { SimulationKernel, stateEquals } from '@readinessos/simulation-kernel';
+import { z } from 'zod';
 import { AgentObservationService } from '../src/index.js';
 
 const organizationIds: string[] = [];
@@ -41,15 +43,65 @@ describe('AgentObservationService', () => {
     ]);
     expect(second.recentEvents.map((event) => event.type)).not.toContain('participant.first');
   });
+
+  it('只暴露同时满足建议授权与 Kernel 前置条件的动作', async () => {
+    const fixture = await createFixture();
+    const service = new AgentObservationService(prisma);
+
+    const beforeDeclaration = await service.build({
+      runId: fixture.runId,
+      organizationId: fixture.organizationId,
+      participantId: fixture.firstRowId,
+      pack: observationPack,
+    });
+    expect(beforeDeclaration.availableActions.map((action) => action.type)).toEqual(['observe']);
+
+    await updateFixtureState(fixture.runId, true);
+    const afterDeclaration = await service.build({
+      runId: fixture.runId,
+      organizationId: fixture.organizationId,
+      participantId: fixture.firstRowId,
+      pack: observationPack,
+    });
+    expect(afterDeclaration.availableActions.map((action) => action.type)).toEqual([
+      'observe',
+      'freeze-retries',
+    ]);
+  });
 });
 
-const observationPack = {
+const kernelParticipantIds = {
+  first: '018f4c8b-9ae2-7a72-86bd-4f867befef01',
+  second: '018f4c8b-9ae2-7a72-86bd-4f867befef02',
+} as const;
+
+const observationStateSchema = z.object({
+  response: z.object({
+    incidentDeclared: z.boolean(),
+  }),
+});
+type ObservationState = z.infer<typeof observationStateSchema>;
+
+const observationPack: ScenarioPack<ObservationState> = {
+  key: 'observation-test',
+  manifest: {
+    key: 'observation-test',
+    name: 'Observation test',
+    description: 'Agent Observation 集成测试场景。',
+    version: 1,
+    estimatedDurationMinutes: 1,
+  },
+  stateSchema: observationStateSchema,
+  initialState: () => ({ response: { incidentDeclared: false } }),
   agentPolicy: {
     advisors: [
       {
         advisorParticipantKey: 'first',
         triggerEventTypes: ['run.started'],
-        recommendationPermissions: [{ targetParticipantKey: 'first', actionType: 'observe' }],
+        recommendationPermissions: [
+          { targetParticipantKey: 'first', actionType: 'observe' },
+          { targetParticipantKey: 'first', actionType: 'freeze-retries' },
+        ],
       },
       {
         advisorParticipantKey: 'second',
@@ -59,13 +111,53 @@ const observationPack = {
     ],
   },
   participants: [
-    { key: 'first', controller: 'agent' },
-    { key: 'second', controller: 'agent' },
+    {
+      id: kernelParticipantIds.first,
+      key: 'first',
+      displayName: 'First',
+      controller: 'agent',
+      capabilities: ['observe', 'freeze-retries'],
+      permissions: ['read:metrics', 'write:retries'],
+      knowledgeScopes: ['metrics'],
+      objectives: [],
+    },
+    {
+      id: kernelParticipantIds.second,
+      key: 'second',
+      displayName: 'Second',
+      controller: 'agent',
+      capabilities: ['observe'],
+      permissions: ['read:metrics'],
+      knowledgeScopes: ['customer'],
+      objectives: [],
+    },
   ],
   actions: [
-    { key: 'observe', label: 'Observe' },
+    {
+      key: 'observe',
+      label: 'Observe',
+      requiredCapabilities: ['observe'],
+      requiredPermissions: ['read:metrics'],
+      risk: 'low',
+      approval: 'none',
+      effects: [],
+    },
+    {
+      key: 'freeze-retries',
+      label: 'Freeze retries',
+      requiredCapabilities: ['freeze-retries'],
+      requiredPermissions: ['write:retries'],
+      risk: 'high',
+      approval: 'required',
+      precondition: stateEquals<ObservationState>(['response', 'incidentDeclared'], true),
+      effects: [],
+    },
   ],
-} as unknown as ScenarioPack<unknown>;
+  signals: [],
+  injects: [],
+  evaluators: [],
+  uiContributions: [],
+};
 
 async function createFixture() {
   const suffix = randomUUID();
@@ -111,21 +203,36 @@ async function createFixture() {
       knowledgeScopes: ['customer'],
     },
   });
-  const firstKernelId = randomUUID();
-  const secondKernelId = randomUUID();
+  const initialState = new SimulationKernel(observationPack).initialize({
+    organizationId: organization.id,
+    runId: run.id,
+    seed: run.seed,
+    config: {},
+    simulatedAt: run.createdAt.toISOString(),
+  });
+  const persistedState = normalizeJson(initialState);
+  await prisma.stateSnapshot.create({
+    data: {
+      runId: run.id,
+      sequence: 0,
+      schemaVersion: 2,
+      state: persistedState,
+      checksum: checksum(persistedState),
+    },
+  });
   await prisma.participantProjection.createMany({
     data: [
       {
         runParticipantId: first.id,
         runId: run.id,
         status: 'active',
-        data: { id: firstKernelId, privateMarker: 'first' },
+        data: { id: kernelParticipantIds.first, privateMarker: 'first' },
       },
       {
         runParticipantId: second.id,
         runId: run.id,
         status: 'active',
-        data: { id: secondKernelId, privateMarker: 'second' },
+        data: { id: kernelParticipantIds.second, privateMarker: 'second' },
       },
     ],
   });
@@ -144,7 +251,7 @@ async function createFixture() {
         id: randomUUID(),
         sequence: 1,
         type: 'participant.first',
-        participantId: firstKernelId,
+        participantId: kernelParticipantIds.first,
         idempotencyKey: 'first-event',
         payload: {},
       },
@@ -153,7 +260,7 @@ async function createFixture() {
         id: randomUUID(),
         sequence: 2,
         type: 'participant.second',
-        participantId: secondKernelId,
+        participantId: kernelParticipantIds.second,
         idempotencyKey: 'second-event',
         payload: {},
       },
@@ -165,7 +272,7 @@ async function createFixture() {
         idempotencyKey: 'first-signal',
         payload: {
           signalKey: 'metrics-only',
-          recipients: [firstKernelId],
+          recipients: [kernelParticipantIds.first],
           requiredKnowledgeScopes: ['metrics'],
         },
       },
@@ -177,7 +284,7 @@ async function createFixture() {
         idempotencyKey: 'second-signal',
         payload: {
           signalKey: 'customer-only',
-          recipients: [secondKernelId],
+          recipients: [kernelParticipantIds.second],
           requiredKnowledgeScopes: ['customer'],
         },
       },
@@ -205,4 +312,43 @@ async function createFixture() {
     firstRowId: first.id,
     secondRowId: second.id,
   };
+}
+
+async function updateFixtureState(runId: string, incidentDeclared: boolean) {
+  const snapshot = await prisma.stateSnapshot.findUniqueOrThrow({
+    where: { runId_sequence: { runId, sequence: 0 } },
+  });
+  const state = normalizeJson(snapshot.state) as {
+    world: { response: { incidentDeclared: boolean } };
+  };
+  state.world.response.incidentDeclared = incidentDeclared;
+  await prisma.stateSnapshot.update({
+    where: { id: snapshot.id },
+    data: {
+      state,
+      checksum: checksum(state),
+    },
+  });
+}
+
+function normalizeJson<TValue>(value: TValue): TValue {
+  return JSON.parse(JSON.stringify(value)) as TValue;
+}
+
+function checksum(value: unknown): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
 }
